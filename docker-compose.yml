@@ -13,6 +13,8 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - demand_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d demand_planning"]
       interval: 10s
@@ -26,9 +28,11 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-      - "3000:3000"
+      - "3003:3000"
     volumes:
       - falkordb_data:/data
+    networks:
+      - demand_network
     healthcheck:
       test: ["CMD", "redis-cli", "-p", "6379", "ping"]
       interval: 10s
@@ -68,6 +72,8 @@ services:
       - "9644:9644"
     volumes:
       - redpanda_data:/var/lib/redpanda/data
+    networks:
+      - demand_network
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
       interval: 15s
@@ -82,6 +88,8 @@ services:
       KAFKA_BROKERS: redpanda:29092
     ports:
       - "8080:8080"
+    networks:
+      - demand_network
     depends_on:
       - redpanda
 
@@ -98,6 +106,8 @@ services:
       - POSTGRES_SEEDS=postgres
     ports:
       - "7233:7233"
+    networks:
+      - demand_network
     depends_on:
       postgres:
         condition: service_healthy
@@ -117,6 +127,8 @@ services:
       - TEMPORAL_CORS_ORIGINS=http://localhost:8088
     ports:
       - "8088:8080"
+    networks:
+      - demand_network
     depends_on:
       - temporal
 
@@ -150,6 +162,8 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+    networks:
+      - demand_network
     depends_on:
       postgres:
         condition: service_healthy
@@ -166,9 +180,6 @@ services:
       retries: 5
 
   # ── Inngest (Job Scheduler + Cron) ───────────────────────────────────────────
-  # Triggers demand cycle automatically on 1st of every month at 9 AM.
-  # Dashboard available at http://localhost:8288
-  # Also supports manual triggers via dashboard or API.
   inngest:
     image: inngest/inngest:latest
     container_name: demand_inngest
@@ -179,6 +190,8 @@ services:
       - "8289:8289"
     environment:
       - INNGEST_DEV=1
+    networks:
+      - demand_network
     depends_on:
       fastapi:
         condition: service_healthy
@@ -208,6 +221,8 @@ services:
       TEMPORAL_HOST: temporal:7233
     volumes:
       - .:/app
+    networks:
+      - demand_network
     depends_on:
       postgres:
         condition: service_healthy
@@ -243,6 +258,8 @@ services:
     volumes:
       - .:/app
       - ./attachments:/app/attachments
+    networks:
+      - demand_network
     depends_on:
       postgres:
         condition: service_healthy
@@ -251,7 +268,35 @@ services:
       temporal_worker:
         condition: service_started
 
+  # ── Metabase (BI Dashboard) ───────────────────────────────────────────────────
+  # Access at http://localhost:3002
+  # Uses internal port 3001 to avoid conflict with falkordb on 3000
+  metabase:
+    image: metabase/metabase:latest
+    container_name: demand_metabase
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      MB_DB_TYPE: h2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - metabase_data:/metabase-data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+networks:
+  demand_network:
+    driver: bridge
+
 volumes:
   postgres_data:
   falkordb_data:
   redpanda_data:
+  metabase_data:
