@@ -1,11 +1,57 @@
 import psycopg2
+import logging
 from temporalio import activity
 from app.core.database import get_connection, write_confirmed_qty
+
+logger = logging.getLogger(__name__)
 
 
 @activity.defn
 async def fetch_context_activity(distributor_id: str) -> dict:
-    return {"distributor_id": distributor_id, "status": "fetched"}
+    """
+    Fetch historical ordering context for a distributor from PostgreSQL + FalkorDB.
+    Uses FetchDistributorContextService to analyse past sales patterns before
+    the demand email is sent — so the agent knows what the distributor typically buys.
+    """
+    from app.core.database import SessionLocal
+    from app.services.fetch_distributor_context_service import FetchDistributorContextService
+
+    db = SessionLocal()
+    try:
+        service = FetchDistributorContextService(db)
+        context = service.execute(distributor_id)
+
+        logger.info(
+            f"[fetch_context] distributor={distributor_id} "
+            f"historical_rows={context.get('historical_rows_count', 0)} "
+            f"unique_skus={context.get('unique_skus_purchased', 0)}"
+        )
+
+        return context
+
+    except ValueError as e:
+        logger.warning(f"[fetch_context] {e} — returning minimal context")
+        return {
+            "distributor_id": distributor_id,
+            "status": "distributor_not_found",
+            "historical_rows_count": 0,
+            "unique_skus_purchased": 0,
+            "sku_demand_signals": [],
+            "existing_skus": [],
+        }
+    except Exception as e:
+        logger.error(f"[fetch_context] Unexpected error for {distributor_id}: {e}")
+        return {
+            "distributor_id": distributor_id,
+            "status": "error",
+            "error": str(e),
+            "historical_rows_count": 0,
+            "unique_skus_purchased": 0,
+            "sku_demand_signals": [],
+            "existing_skus": [],
+        }
+    finally:
+        db.close()
 
 
 @activity.defn
