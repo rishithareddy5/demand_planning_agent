@@ -9,6 +9,7 @@ from app.inngest_functions import inngest_client, inngest_functions
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 from app.controllers.reply_validation_controller import router as validation_router
+from app.controllers.postal_webhook_controller import router as webhook_router  # ← Fix: was never registered
 
 
 # ── Lifespan: runs once on startup ────────────────────────────────────────────
@@ -35,6 +36,7 @@ inngest.fast_api.serve(
 
 # ── Register routers ──────────────────────────────────────────────────────────
 app.include_router(validation_router)
+app.include_router(webhook_router)   # ← Fix: POST /webhook/reply is now live
 
 
 # ── Base routes ───────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ with workflow.unsafe.imports_passed_through():
         fetch_context_activity,
         validate_reply_activity,
         write_confirmed_qty_activity,
+        send_confirmation_email_activity,   # ← Fix: was missing from imports
         emit_demand_confirmed_activity,
     )
 
@@ -38,7 +39,7 @@ class DemandPlanningWorkflow:
             )
             return
 
-        # Validate → write → emit
+        # Validate → write → confirm → emit
         reply_id = self._reply_data["parsed_reply_id"]
 
         validated = await workflow.execute_activity(
@@ -48,6 +49,14 @@ class DemandPlanningWorkflow:
         if validated.get("status") == "valid":
             await workflow.execute_activity(
                 write_confirmed_qty_activity,
+                args=[distributor_id, validated],
+                **opts,
+            )
+            # ── Fix: Send confirmation email back to the distributor ───────
+            # This activity existed in activities.py and worker.py but was
+            # never imported or called here — so no confirmation was ever sent.
+            await workflow.execute_activity(
+                send_confirmation_email_activity,
                 args=[distributor_id, validated],
                 **opts,
             )

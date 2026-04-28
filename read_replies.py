@@ -173,6 +173,9 @@ def read_unseen_replies():
     mail.login(EMAIL_ADDRESS, EMAIL_APP_PASSWORD)
     mail.select("inbox")
 
+    # Search all emails with matching subject (no UNSEEN filter)
+    # Deduplication is handled by already_saved() in save_to_postgres.py
+    # using the real Message-ID header to avoid re-processing
     status, messages = mail.search(None, '(SUBJECT "Re: Demand Request")')
 
     if status != "OK":
@@ -189,7 +192,11 @@ def read_unseen_replies():
         raw_email = msg_data[0][1]
         msg = email.message_from_bytes(raw_email)
 
-        message_id = num.decode()
+        # Use real Message-ID header instead of IMAP sequence number.
+        # IMAP sequence numbers (1, 2, 3...) shift when emails are deleted
+        # or the mailbox is re-selected — causing wrong deduplication in DB.
+        message_id = msg.get("Message-ID", "").strip() or num.decode()
+
         subject = decode_mime_words(msg.get("Subject", ""))
         from_header = decode_mime_words(msg.get("From", ""))
         from_email = extract_sender_email(from_header)
