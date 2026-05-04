@@ -11,9 +11,6 @@ import inngest
 import httpx
 import os
 
-from app.temporal.client import get_temporal_client
-from app.temporal.workflow import DemandPlanningWorkflow
-
 # ── Inngest client ─────────────────────────────────────────────────────────────
 inngest_client = inngest.Inngest(
     app_id="demand-planning-agent",
@@ -21,54 +18,6 @@ inngest_client = inngest.Inngest(
 )
 
 FASTAPI_BASE = os.getenv("FASTAPI_BASE_URL", "http://fastapi:8000")
-
-
-def _workflow_id(distributor_id: str) -> str:
-    # Keep one long-running workflow per distributor per cycle.
-    return f"demand-{distributor_id}-cycle"
-
-
-async def _start_temporal_workflows_for_sent_emails(send_bulk_result: dict) -> dict:
-    """
-    After emails are sent, start waiting workflows in Temporal so they appear
-    as RUNNING until distributors reply (or timeout after 7 days).
-    """
-    results = send_bulk_result.get("results", []) or []
-    client = await get_temporal_client()
-
-    started = []
-    already_running = []
-    failed = []
-
-    for row in results:
-        distributor_id = row.get("distributor_id")
-        status = row.get("status")
-
-        if not distributor_id or status != "success":
-            continue
-
-        wf_id = _workflow_id(distributor_id)
-        try:
-            await client.start_workflow(
-                DemandPlanningWorkflow.run,
-                distributor_id,
-                id=wf_id,
-                task_queue="demand-planning-queue",
-            )
-            started.append(wf_id)
-        except Exception as exc:
-            # temporalio exception classes differ across versions.
-            # Treat "already started" as non-fatal and continue.
-            if "already started" in str(exc).lower():
-                already_running.append(wf_id)
-            else:
-                failed.append({"workflow_id": wf_id, "error": str(exc)})
-
-    return {
-        "started": started,
-        "already_running": already_running,
-        "failed": failed,
-    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -92,15 +41,10 @@ async def demand_cycle_manual(ctx: inngest.Context) -> dict:
             return response.json()
 
     result = await step.run("send-bulk-emails", send_bulk_emails)
-    temporal_result = await step.run(
-        "start-temporal-workflows",
-        lambda: _start_temporal_workflows_for_sent_emails(result),
-    )
 
     return {
         "status": "manual cycle triggered",
-        "result": result,
-        "temporal": temporal_result,
+        "result": result
     }
 
 
@@ -125,15 +69,10 @@ async def demand_cycle_monthly(ctx: inngest.Context) -> dict:
             return response.json()
 
     result = await step.run("send-bulk-emails", send_bulk_emails)
-    temporal_result = await step.run(
-        "start-temporal-workflows",
-        lambda: _start_temporal_workflows_for_sent_emails(result),
-    )
 
     return {
         "status": "monthly cycle triggered",
-        "result": result,
-        "temporal": temporal_result,
+        "result": result
     }
 
 

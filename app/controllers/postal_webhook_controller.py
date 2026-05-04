@@ -51,12 +51,12 @@ async def _signal_temporal_workflow(distributor_id: str, parsed_reply_id: int):
     This signal unblocks it and passes the parsed reply ID so it can
     proceed to validation → write → emit DemandConfirmed.
 
-    Workflow ID convention: "demand-{distributor_id}-cycle"
-    e.g. distributor D01 → workflow ID "demand-D01-cycle"
+    Workflow ID convention: "demand-{distributor_id}"
+    e.g. distributor D01 → workflow ID "demand-D01"
     """
     client = await Client.connect(TEMPORAL_HOST)
 
-    workflow_id = f"demand-{distributor_id}-cycle"
+    workflow_id = f"demand-{distributor_id}"
     handle = client.get_workflow_handle(workflow_id)
 
     signal_payload = {
@@ -167,6 +167,6 @@ async def postal_reply_webhook(request: Request):
         "parsed_data": parsed_data,
         "events_emitted": {
             "redpanda": "ReplyReceived" if parsed_reply_id else "skipped — no parsed_reply_id",
-            "temporal": f"demand-{distributor_id}-cycle" if parsed_reply_id else "skipped — no parsed_reply_id",
+            "temporal": f"demand-{distributor_id}" if parsed_reply_id else "skipped — no parsed_reply_id",
         },
     }
