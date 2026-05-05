@@ -56,7 +56,7 @@ async def _signal_temporal_workflow(distributor_id: str, parsed_reply_id: int):
     """
     client = await Client.connect(TEMPORAL_HOST)
 
-    workflow_id = f"demand-{distributor_id}"
+    workflow_id = f"demand-{distributor_id}-cycle"
     handle = client.get_workflow_handle(workflow_id)
 
     signal_payload = {

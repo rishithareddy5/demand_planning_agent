@@ -1,5 +1,6 @@
 from app.models.distributor import Distributor
 
+
 class DistributorRepository:
     def __init__(self, db):
         self.db = db
