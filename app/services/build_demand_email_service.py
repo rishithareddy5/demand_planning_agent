@@ -1,24 +1,19 @@
 from typing import List
-from app.data.sku_data import get_sku_id_to_name
 
 
-def get_recommended_products(limit: int = 5) -> List[str]:
-    sku_id_to_name = get_sku_id_to_name()
-    if not sku_id_to_name:
-        return []
-    return list(sku_id_to_name.values())[:limit]
+def build_demand_email(
+    distributor_id: str,
+    distributor_email: str,
+    recommendations: List[str] = None
+) -> dict:
 
-
-def build_demand_email(distributor_id: str, distributor_email: str) -> dict:
-    recommended_products = get_recommended_products(limit=5)
-
-    if recommended_products:
+    if recommendations:
         recommended_block = "\n".join(
             f"{i}. {product}"
-            for i, product in enumerate(recommended_products, start=1)
+            for i, product in enumerate(recommendations, start=1)
         )
     else:
-        recommended_block = "1. No products available"
+        recommended_block = "  No recommendations available at this time."
 
     subject = "Demand Request for Upcoming Month"
 
@@ -30,25 +25,28 @@ We are planning for the upcoming month and request you to share your expected pr
 
 Your Distributor ID: {distributor_id}
 
-Best Recommended Products:
+Recommended Products for You This Month:
 {recommended_block}
 
-Please provide the expected demand for the next month in the following format:
+Please provide your expected demand for the next 30 days in the following format:
 
 Product Name - Quantity
 
 Example:
-Product A - 100
-Product B - 250
+MALKIST CHEESE 48 PCS X 72 - 100
+BENG BENG WAFER 22GM - 250
 
-You may also fill in the attached Excel file and reply back to this email.
+You may also fill in the attached Excel sheet and reply to this email.
+If replying via Excel, please keep the columns: Product Name | Quantity.
+
+We look forward to your response.
 
 Regards,
-Lipton Enterprises
+Lipton Enterprises - Demand Planning Team
 """
 
     return {
-        "to_email": distributor_email,
-        "subject": subject,
-        "body": body
+        "to_email":  distributor_email,
+        "subject":   subject,
+        "body":      body,
     }
