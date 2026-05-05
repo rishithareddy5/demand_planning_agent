@@ -64,7 +64,7 @@ class FetchDistributorContextService:
 
         # 🔹 FINAL RETURN (UPDATED)
         return {
-            "distributor_id": distributor.distributor_id,
+            "distributor_id": distributor.distributor_code,
             "distributor_name": distributor.distributor_name,   # ✅ NEW
             "email": distributor.email,                         # ✅ NEW
             "region": distributor.region,                       # ✅ NEW

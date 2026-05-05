@@ -7,5 +7,5 @@ class DistributorRepository:
 
     def get_by_distributor_id(self, distributor_id: str):
         return self.db.query(Distributor).filter(
-            Distributor.distributor_code == distributor_id
+            Distributor.distributor_id == distributor_id
         ).first()

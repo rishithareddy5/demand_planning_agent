@@ -1,18 +1,20 @@
-from sqlalchemy import Column, String, Boolean
+from sqlalchemy import Column, String
 from app.core.database import Base
 
 
 class Distributor(Base):
     __tablename__ = "distributors"
 
-    distributor_id   = Column(String, primary_key=True)
-    distributor_code = Column(String, unique=True)
-    name             = Column(String)
+    distributor_id   = Column(String, primary_key=True)  # "D01", "D02" etc.
+    distributor_name = Column(String)
     email            = Column(String)
     region           = Column(String)
-    priority         = Column(String)
-    is_active        = Column(Boolean, default=True)
+
+    # Aliases so existing code doesn't break
+    @property
+    def distributor_code(self):
+        return self.distributor_id
 
     @property
-    def distributor_name(self):
-        return self.name
+    def name(self):
+        return self.distributor_name
