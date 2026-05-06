@@ -1,0 +1,308 @@
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: demand_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: demand_planning
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - demand_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d demand_planning"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FalkorDB (Graph DB) ──────────────────────────────────────────────────────
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: demand_falkordb
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+      - "3003:3000"
+    volumes:
+      - falkordb_data:/data
+    networks:
+      - demand_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── RedPanda (Event Bus) ─────────────────────────────────────────────────────
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: demand_redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 512M
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+      - --pandaproxy-addr
+      - 0.0.0.0:8082
+      - --advertise-pandaproxy-addr
+      - localhost:8082
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+      - "8082:8082"
+      - "9644:9644"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    networks:
+      - demand_network
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  redpanda_console:
+    image: redpandadata/console:latest
+    container_name: demand_redpanda_console
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKERS: redpanda:29092
+    ports:
+      - "8080:8080"
+    networks:
+      - demand_network
+    depends_on:
+      - redpanda
+
+  # ── Temporal (Durable Workflow Engine) ───────────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    container_name: demand_temporal
+    restart: unless-stopped
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=postgres
+      - POSTGRES_SEEDS=postgres
+    ports:
+      - "7233:7233"
+    networks:
+      - demand_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  temporal_ui:
+    image: temporalio/ui:2.26.2
+    container_name: demand_temporal_ui
+    restart: unless-stopped
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8088
+    ports:
+      - "8088:8080"
+    networks:
+      - demand_network
+    depends_on:
+      - temporal
+
+  # ── FastAPI ──────────────────────────────────────────────────────────────────
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: demand_fastapi
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/demand_planning
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: demand_planning
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: 6379
+      FALKOR_HOST: falkordb
+      FALKOR_PORT: 6379
+      FALKOR_GRAPH: demand_graph
+      REDPANDA_BROKER: redpanda:29092
+      REDPANDA_BROKERS: redpanda:29092
+      TEMPORAL_HOST: temporal:7233
+      INNGEST_DEV: "1"
+      INNGEST_BASE_URL: http://inngest:8288
+      FASTAPI_BASE_URL: http://fastapi:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    networks:
+      - demand_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      falkordb:
+        condition: service_healthy
+      redpanda:
+        condition: service_started
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── Inngest (Job Scheduler + Cron) ───────────────────────────────────────────
+  inngest:
+    image: inngest/inngest:latest
+    container_name: demand_inngest
+    restart: unless-stopped
+    command: "inngest dev --host 0.0.0.0 -u http://fastapi:8000/api/inngest"
+    ports:
+      - "8288:8288"
+      - "8289:8289"
+    environment:
+      - INNGEST_DEV=1
+    networks:
+      - demand_network
+    depends_on:
+      fastapi:
+        condition: service_healthy
+
+  # ── Temporal Worker ──────────────────────────────────────────────────────────
+  temporal_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: demand_temporal_worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.temporal.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/demand_planning
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: demand_planning
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: 6379
+      FALKOR_HOST: falkordb
+      FALKOR_PORT: 6379
+      FALKOR_GRAPH: demand_graph
+      REDPANDA_BROKER: redpanda:29092
+      TEMPORAL_HOST: temporal:7233
+    volumes:
+      - .:/app
+    networks:
+      - demand_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      fastapi:
+        condition: service_healthy
+
+  # ── Gmail Poller ─────────────────────────────────────────────────────────────
+  gmail_poller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: demand_gmail_poller
+    restart: unless-stopped
+    command: ["python", "run_pipeline_service.py"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/demand_planning
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: demand_planning
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: 6379
+      FALKOR_HOST: falkordb
+      FALKOR_PORT: 6379
+      FALKOR_GRAPH: demand_graph
+      REDPANDA_BROKER: redpanda:29092
+      TEMPORAL_HOST: temporal:7233
+      POLL_INTERVAL_SECONDS: "60"
+    volumes:
+      - .:/app
+      - ./attachments:/app/attachments
+    networks:
+      - demand_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      fastapi:
+        condition: service_healthy
+      temporal_worker:
+        condition: service_started
+
+  # ── Metabase (BI Dashboard) ───────────────────────────────────────────────────
+  # Fixed: switched from H2 (in-container embedded DB) to PostgreSQL
+  # so dashboards, questions, and connections persist across restarts.
+  # Run this once before first docker compose up:
+  #   docker exec -it demand_postgres psql -U postgres -c "CREATE DATABASE metabase;"
+  metabase:
+    image: metabase/metabase:latest
+    container_name: demand_metabase
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: postgres
+      MB_DB_PORT: 5432
+      MB_DB_DBNAME: metabase
+      MB_DB_USER: postgres
+      MB_DB_PASS: postgres
+    networks:
+      - demand_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+networks:
+  demand_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  falkordb_data:
+  redpanda_data:
