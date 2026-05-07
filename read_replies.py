@@ -48,9 +48,51 @@ def strip_html_tags(html: str) -> str:
     text = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
     text = re.sub(r"</p\s*>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"<[^>]+>", "", text)
-    text = re.sub(r"&nbsp;", " ", text)
-    text = re.sub(r"&amp;", "&", text)
+    text = text.replace("&nbsp;", " ")
+    text = text.replace("&amp;", "&")
     return text.strip()
+
+
+def _decode_payload(payload, charset):    # split snr
+    try:
+        return payload.decode(charset, errors="ignore")
+    except Exception:
+        return payload.decode("utf-8", errors="ignore")
+
+
+def _process_part(part):
+    content_type = part.get_content_type()
+    content_disposition = str(part.get("Content-Disposition") or "").lower()
+
+    if "attachment" in content_disposition:
+        return None, None
+
+    payload = part.get_payload(decode=True)
+    if not payload:
+        return None, None
+
+    charset = part.get_content_charset() or "utf-8"
+    decoded = _decode_payload(payload, charset)
+
+    if content_type == "text/plain":
+        return decoded, None
+    elif content_type == "text/html":
+        return None, decoded
+
+    return None, None
+
+
+def _process_singlepart(msg):
+    payload = msg.get_payload(decode=True)
+    if not payload:
+        return "", ""
+
+    charset = msg.get_content_charset() or "utf-8"
+    decoded = _decode_payload(payload, charset)
+
+    if msg.get_content_type() == "text/html":
+        return "", decoded
+    return decoded, ""
 
 
 def extract_text_from_message(msg) -> str:
@@ -59,40 +101,14 @@ def extract_text_from_message(msg) -> str:
 
     if msg.is_multipart():
         for part in msg.walk():
-            content_type = part.get_content_type()
-            content_disposition = str(part.get("Content-Disposition") or "").lower()
+            plain, html = _process_part(part)
 
-            if "attachment" in content_disposition:
-                continue
-
-            payload = part.get_payload(decode=True)
-            if not payload:
-                continue
-
-            charset = part.get_content_charset() or "utf-8"
-
-            try:
-                decoded_payload = payload.decode(charset, errors="ignore")
-            except Exception:
-                decoded_payload = payload.decode("utf-8", errors="ignore")
-
-            if content_type == "text/plain":
-                plain_body += decoded_payload + "\n"
-            elif content_type == "text/html":
-                html_body += decoded_payload + "\n"
+            if plain:
+                plain_body += plain + "\n"
+            if html:
+                html_body += html + "\n"
     else:
-        payload = msg.get_payload(decode=True)
-        if payload:
-            charset = msg.get_content_charset() or "utf-8"
-            try:
-                decoded_payload = payload.decode(charset, errors="ignore")
-            except Exception:
-                decoded_payload = payload.decode("utf-8", errors="ignore")
-
-            if msg.get_content_type() == "text/html":
-                html_body = decoded_payload
-            else:
-                plain_body = decoded_payload
+        plain_body, html_body = _process_singlepart(msg)
 
     if plain_body.strip():
         return plain_body.strip()
@@ -180,7 +196,7 @@ def read_unseen_replies():
 
     if status != "OK":
         mail.logout()
-        raise Exception("Failed to search inbox")
+        raise RuntimeError("Failed to search inbox")
 
     email_data = []
 

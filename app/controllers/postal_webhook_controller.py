@@ -98,7 +98,22 @@ def _get_distributor_id_from_email(from_address: str) -> str | None:
 
 # ── Route ──────────────────────────────────────────────────────────────────────
 
-@router.post("/webhook/reply")
+@router.post(
+    "/webhook/reply",
+    responses={
+        400: {
+            "description": "Bad Request",                               #snr change
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Invalid JSON payload"}
+                }
+            },
+        },
+        422: {
+            "description": "Distributor not found for given email"
+        },
+    },
+)
 async def postal_reply_webhook(request: Request):
     # ── 1. Parse incoming JSON ─────────────────────────────────────────────────
     try:

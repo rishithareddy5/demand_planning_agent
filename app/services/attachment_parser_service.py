@@ -128,66 +128,87 @@ def resolve_product(
 
 
 def parse_excel_file(file_path: str) -> List[Dict[str, Any]]:
+    excel_data = pd.read_excel(file_path, sheet_name=None)          #function split()
     parsed_items: List[Dict[str, Any]] = []
 
-    excel_data = pd.read_excel(file_path, sheet_name=None)
-
     for sheet_name, df in excel_data.items():
-        if df.empty:
-            continue
-
-        df.columns = [str(col).strip() for col in df.columns]
-
-        sku_id_col = find_best_column(list(df.columns), POSSIBLE_SKU_ID_COLUMNS)
-        product_col = find_best_column(list(df.columns), POSSIBLE_PRODUCT_COLUMNS)
-        qty_col = find_best_column(list(df.columns), POSSIBLE_QTY_COLUMNS)
-
-        # quantity is mandatory
-        if not qty_col:
-            continue
-
-        # at least one of sku_id or product must exist
-        if not sku_id_col and not product_col:
-            continue
-
-        for _, row in df.iterrows():
-            sku_id_value = row.get(sku_id_col) if sku_id_col else None
-            product_value = row.get(product_col) if product_col else None
-            qty_value = row.get(qty_col)
-
-            quantity = extract_numeric_quantity(qty_value)
-
-            # skip invalid / zero / negative demand
-            if quantity is None or quantity <= 0:
-                continue
-
-            product_text = ""
-            if product_value is not None and not pd.isna(product_value):
-                product_text = str(product_value).strip()
-
-            sku_id, sku_name, match_score, match_type = resolve_product(
-                product_text=product_text,
-                sku_id_value=sku_id_value,
-                min_fuzzy_score=90
-            )
-
-            # skip unmatched rows rather than guessing wrong
-            if not sku_id:
-                continue
-
-            parsed_items.append({
-                "sku_id": sku_id,
-                "sku_name": sku_name,
-                "quantity": quantity,
-                "unit": None,
-                "matched_text": f"{product_text or sku_id_value} | {quantity}",
-                "match_score": match_score,
-                "source": "excel_attachment",
-                "sheet_name": sheet_name,
-                "match_type": match_type,
-            })
+        items = _process_sheet(df, sheet_name)
+        parsed_items.extend(items)
 
     return parsed_items
+
+
+
+def _process_sheet(df, sheet_name: str) -> List[Dict[str, Any]]:
+    if df.empty:
+        return []
+
+    df.columns = [str(col).strip() for col in df.columns]
+
+    sku_id_col = find_best_column(list(df.columns), POSSIBLE_SKU_ID_COLUMNS)
+    product_col = find_best_column(list(df.columns), POSSIBLE_PRODUCT_COLUMNS)
+    qty_col = find_best_column(list(df.columns), POSSIBLE_QTY_COLUMNS)
+
+    # quantity is mandatory
+    if not qty_col:
+        return []
+
+    # at least one of sku_id or product must exist
+    if not sku_id_col and not product_col:
+        return []
+
+    return _process_rows(df, sheet_name, sku_id_col, product_col, qty_col)
+
+
+
+def _process_rows(df, sheet_name, sku_id_col, product_col, qty_col):
+    items: List[Dict[str, Any]] = []
+
+    for _, row in df.iterrows():
+        item = _parse_row(row, sheet_name, sku_id_col, product_col, qty_col)
+        if item:
+            items.append(item)
+
+    return items
+
+
+def _parse_row(row, sheet_name, sku_id_col, product_col, qty_col):
+    sku_id_value = row.get(sku_id_col) if sku_id_col else None
+    product_value = row.get(product_col) if product_col else None
+    qty_value = row.get(qty_col)
+
+    quantity = extract_numeric_quantity(qty_value)
+
+    # skip invalid / zero / negative demand
+    if quantity is None or quantity <= 0:
+        return None
+
+    product_text = ""
+    if product_value is not None and not pd.isna(product_value):
+        product_text = str(product_value).strip()
+
+    sku_id, sku_name, match_score, match_type = resolve_product(
+        product_text=product_text,
+        sku_id_value=sku_id_value,
+        min_fuzzy_score=90
+    )
+
+    # skip unmatched rows
+    if not sku_id:
+        return None
+
+    return {
+        "sku_id": sku_id,
+        "sku_name": sku_name,
+        "quantity": quantity,
+        "unit": None,
+        "matched_text": f"{product_text or sku_id_value} | {quantity}",
+        "match_score": match_score,
+        "source": "excel_attachment",
+        "sheet_name": sheet_name,
+        "match_type": match_type,
+    }
+
 
 
 def is_excel_attachment(filename: str) -> bool:

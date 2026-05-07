@@ -59,7 +59,7 @@ ALL_SKUS = [
 ]
 
 
-def generate_demand_excel(distributor_id: str, recommendations: list) -> str:
+def generate_demand_excel( recommendations: list) -> str:
     """
     Generates an Excel file matching the DEMAND.xlsx format exactly:
     Columns: sku_id | sku_name | sku_description | Quantity
@@ -89,7 +89,7 @@ def generate_demand_excel(distributor_id: str, recommendations: list) -> str:
         ws.cell(row=row_idx, column=1, value=sku_id)
         ws.cell(row=row_idx, column=2, value=sku_name)
         ws.cell(row=row_idx, column=3, value=sku_desc)
-        qty_cell = ws.cell(row=row_idx, column=4, value=None)
+        ws.cell(row=row_idx, column=4, value=None)
 
         # Highlight recommended SKUs in yellow
         if sku_name.upper() in rec_names:
@@ -149,6 +149,7 @@ def send_email(
 
 
 def send_bulk_emails(distributors: list) -> dict:
+    
     results = []
     rec_service = SKURecommendationService()
 
@@ -169,7 +170,7 @@ def send_bulk_emails(distributors: list) -> dict:
             )
 
             # Generate Excel with all 40 SKUs, recommended ones highlighted
-            attachment_path = generate_demand_excel(distributor_id, recommendations)
+            attachment_path = generate_demand_excel(recommendations)
 
             # Send email with attachment
             result = send_email(

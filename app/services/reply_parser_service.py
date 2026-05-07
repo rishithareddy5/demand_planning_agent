@@ -47,7 +47,7 @@ def clean_email_body(body: str) -> str:
 
     text = "\n".join(cleaned_lines)
     text = text.replace(":", " - ").replace("=", " - ").replace("\t", " ")
-    text = re.sub(r"[ ]{2,}", " ", text)
+    text = re.sub(r"\{2,}", "", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
@@ -262,37 +262,52 @@ def calculate_confidence(
     matched_items: List[Dict[str, Any]],
     reply_type: str
 ) -> float:
+
     if reply_type != "demand":
-        return 0.9 if distributor_id != "UNKNOWN" else 0.6
+        return _non_demand_confidence(distributor_id)
 
     if not matched_items:
-        return 0.2 if distributor_id != "UNKNOWN" else 0.1
+        return _empty_items_confidence(distributor_id)
 
     total_score = 0.0
 
     for item in matched_items:
-        score = 0.0
-
-        if distributor_id != "UNKNOWN":
-            score += 0.20
-
-        if item.get("sku_id"):
-            score += 0.35
-
-        if item.get("quantity") is not None:
-            score += 0.25
-
-        fuzz_score = item.get("match_score", 0)
-        if fuzz_score >= 90:
-            score += 0.20
-        elif fuzz_score >= 80:
-            score += 0.15
-        elif fuzz_score >= 75:
-            score += 0.10
-
+        score = _calculate_item_score(item, distributor_id)
         total_score += min(score, 1.0)
 
     return round(total_score / len(matched_items), 2)
+
+def _non_demand_confidence(distributor_id):
+    return 0.9 if distributor_id != "UNKNOWN" else 0.6
+
+def _empty_items_confidence(distributor_id):
+    return 0.2 if distributor_id != "UNKNOWN" else 0.1
+
+
+def _calculate_item_score(item, distributor_id):
+    score = 0.0
+
+    if distributor_id != "UNKNOWN":
+        score += 0.20
+
+    if item.get("sku_id"):
+        score += 0.35
+
+    if item.get("quantity") is not None:
+        score += 0.25
+
+    score += _fuzzy_score_bonus(item.get("match_score", 0))
+
+    return score
+
+def _fuzzy_score_bonus(fuzz_score):
+    if fuzz_score >= 90:
+        return 0.20
+    elif fuzz_score >= 80:
+        return 0.15
+    elif fuzz_score >= 75:
+        return 0.10
+    return 0.0
 
 
 def aggregate_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

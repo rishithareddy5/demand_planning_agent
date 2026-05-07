@@ -35,6 +35,32 @@ def get_graph():
     client = falkordb.FalkorDB(host=FALKORDB_HOST, port=FALKORDB_PORT)
     return client.select_graph(GRAPH_NAME)
 
+
+# ── Constants ─────────────────────────────────────
+TIER_1 = "Tier 1"  # easy changes
+TIER_2 = "Tier 2"
+
+REGION_PAN_INDIA = "Pan India"
+
+CHANNEL_SUPER_STOCKIST = "Super Stockist"
+CHANNEL_REGIONAL_DISTRIBUTOR = "Regional Distributor"
+
+PRIORITY_HIGH = "High"
+PRIORITY_MEDIUM = "Medium"
+
+# ── Category Constants ──
+CATEGORY_MALKIST_CHEESE = "MALKIST CHEESE"
+CATEGORY_BENG_BENG = "BENG BENG"
+CATEGORY_KOPIKO_CAPPUCCINO = "KOPIKO CAPPUCCINO"
+CATEGORY_MALKIST_SUGAR = "MALKIST SUGAR"
+
+# Optional (cleaner for graph creation)
+CATEGORIES = [
+    CATEGORY_MALKIST_CHEESE,
+    CATEGORY_BENG_BENG,
+    CATEGORY_KOPIKO_CAPPUCCINO,
+    CATEGORY_MALKIST_SUGAR,
+]
 # -----------------------------------------------------------
 # SEED DATA (from primary_sales_cleaned.xlsx)
 # -----------------------------------------------------------
@@ -45,27 +71,27 @@ OEM = {
 }
 
 DISTRIBUTORS = [
-    {"distributor_id": "D01", "name": "Distributor D01", "tier": "Tier 2", "channel": "Super Stockist",       "region": "Pan India", "priority": "Medium"},
-    {"distributor_id": "D02", "name": "Distributor D02", "tier": "Tier 2", "channel": "Regional Distributor", "region": "Pan India", "priority": "Medium"},
-    {"distributor_id": "D03", "name": "Distributor D03", "tier": "Tier 1", "channel": "Super Stockist",       "region": "Pan India", "priority": "High"},
-    {"distributor_id": "D04", "name": "Distributor D04", "tier": "Tier 2", "channel": "Regional Distributor", "region": "Pan India", "priority": "Medium"},
-    {"distributor_id": "D05", "name": "Distributor D05", "tier": "Tier 2", "channel": "Regional Distributor", "region": "Pan India", "priority": "Medium"},
+    {"distributor_id": "D01", "name": "Distributor D01", "tier": TIER_2, "channel": CHANNEL_SUPER_STOCKIST,       "region": REGION_PAN_INDIA, "priority": PRIORITY_MEDIUM},
+    {"distributor_id": "D02", "name": "Distributor D02", "tier": TIER_2, "channel": CHANNEL_REGIONAL_DISTRIBUTOR, "region": REGION_PAN_INDIA, "priority": PRIORITY_MEDIUM},
+    {"distributor_id": "D03", "name": "Distributor D03", "tier": TIER_1, "channel": CHANNEL_SUPER_STOCKIST,       "region": REGION_PAN_INDIA, "priority": PRIORITY_HIGH},
+    {"distributor_id": "D04", "name": "Distributor D04", "tier": TIER_2, "channel": CHANNEL_REGIONAL_DISTRIBUTOR, "region": REGION_PAN_INDIA, "priority": PRIORITY_MEDIUM},
+    {"distributor_id": "D05", "name": "Distributor D05", "tier": TIER_2, "channel": CHANNEL_REGIONAL_DISTRIBUTOR, "region": REGION_PAN_INDIA, "priority": PRIORITY_MEDIUM},
 ]
+
 
 SKUS = [
-    {"sku_id": "SKU01", "name": "MALKIST CHEESE 48 PCS X 72",  "category": "MALKIST CHEESE",    "description": "MALKIST CHEESE 48 PCS X 72 GM-GT"},
-    {"sku_id": "SKU02", "name": "MALKIST CHEESE G",             "category": "MALKIST CHEESE",    "description": "MALKIST CHEESE GB 16 X 30 X 18G"},
-    {"sku_id": "SKU03", "name": "MALKIST CHEESE FAMILY 10",     "category": "MALKIST CHEESE",    "description": "MALKIST CHEESE FAMILY 10 X 6 X 144GM-GT"},
-    {"sku_id": "SKU04", "name": "BENG BENG WAFER 22GM",         "category": "BENG BENG",         "description": "BENG BENG WAFER 12 X 25 X 22GM"},
-    {"sku_id": "SKU05", "name": "BENG BENG WAFER GB",           "category": "BENG BENG",         "description": "BENG BENG WAFER GB 12 X 25 X 25G"},
-    {"sku_id": "SKU06", "name": "KOPIKO CAPPU EXTRA",           "category": "KOPIKO CAPPUCCINO", "description": "KOPIKO CAPPU 12X230X3.5GR 15 PCS EXTRA"},
-    {"sku_id": "SKU07", "name": "KOPIKO CAPPU + MALKIST",       "category": "KOPIKO CAPPUCCINO", "description": "KOPIKO CAPPU 4X650X3.5G+MALKIST 20PCS GB"},
-    {"sku_id": "SKU08", "name": "KOPIKO CAPPUCCINO",            "category": "KOPIKO CAPPUCCINO", "description": "KOPIKO CAPPUCCINO 28 PCH X 120 X 3.5G"},
-    {"sku_id": "SKU09", "name": "MALKIST SUGAR GB",             "category": "MALKIST SUGAR",     "description": "MALKIST SUGAR GB 16 X 30 X 18G"},
-    {"sku_id": "SKU10", "name": "MALKIST SUGAR CRACKERS",       "category": "MALKIST SUGAR",     "description": "MALKIST SUGAR CRACKERS 10X 6 X 150G-RS50"},
+    {"sku_id": "SKU01", "name": "MALKIST CHEESE 48 PCS X 72",  "category": CATEGORY_MALKIST_CHEESE,    "description": "MALKIST CHEESE 48 PCS X 72 GM-GT"},
+    {"sku_id": "SKU02", "name": "MALKIST CHEESE G",             "category": CATEGORY_MALKIST_CHEESE,    "description": "MALKIST CHEESE GB 16 X 30 X 18G"},
+    {"sku_id": "SKU03", "name": "MALKIST CHEESE FAMILY 10",     "category": CATEGORY_MALKIST_CHEESE,    "description": "MALKIST CHEESE FAMILY 10 X 6 X 144GM-GT"},
+    {"sku_id": "SKU04", "name": "BENG BENG WAFER 22GM",         "category": CATEGORY_BENG_BENG,         "description": "BENG BENG WAFER 12 X 25 X 22GM"},
+    {"sku_id": "SKU05", "name": "BENG BENG WAFER GB",           "category": CATEGORY_BENG_BENG,         "description": "BENG BENG WAFER GB 12 X 25 X 25G"},
+    {"sku_id": "SKU06", "name": "KOPIKO CAPPU EXTRA",           "category": CATEGORY_KOPIKO_CAPPUCCINO, "description": "KOPIKO CAPPU 12X230X3.5GR 15 PCS EXTRA"},
+    {"sku_id": "SKU07", "name": "KOPIKO CAPPU + MALKIST",       "category": CATEGORY_KOPIKO_CAPPUCCINO, "description": "KOPIKO CAPPU 4X650X3.5G+MALKIST 20PCS GB"},
+    {"sku_id": "SKU08", "name": "KOPIKO CAPPUCCINO",            "category": CATEGORY_KOPIKO_CAPPUCCINO, "description": "KOPIKO CAPPUCCINO 28 PCH X 120 X 3.5G"},
+    {"sku_id": "SKU09", "name": "MALKIST SUGAR GB",             "category": CATEGORY_MALKIST_SUGAR,     "description": "MALKIST SUGAR GB 16 X 30 X 18G"},
+    {"sku_id": "SKU10", "name": "MALKIST SUGAR CRACKERS",       "category": CATEGORY_MALKIST_SUGAR,     "description": "MALKIST SUGAR CRACKERS 10X 6 X 150G-RS50"},
 ]
 
-CATEGORIES = ["MALKIST CHEESE", "BENG BENG", "KOPIKO CAPPUCCINO", "MALKIST SUGAR"]
 
 # Distributor → SKU edges with priority and avg dispatch value
 DISTRIBUTES = [
@@ -231,16 +257,20 @@ def create_distributes_edges(graph):
 
 def create_same_tier_edges(graph):
     # Connect distributors in the same tier to each other
-    tier2 = [d["distributor_id"] for d in DISTRIBUTORS if d["tier"] == "Tier 2"]
+    tier2 = [d["distributor_id"] for d in DISTRIBUTORS if d["tier"] == TIER_2]
     count = 0
     for i in range(len(tier2)):
         for j in range(i + 1, len(tier2)):
             graph.query(
                 """
                 MATCH (a:Distributor {distributor_id: $a}), (b:Distributor {distributor_id: $b})
-                CREATE (a)-[:SAME_TIER {tier: 'Tier 2'}]->(b)
+                CREATE (a)-[:SAME_TIER {tier: $tier}]->(b)
                 """,
-                {"a": tier2[i], "b": tier2[j]}
+                {
+                    "a": tier2[i],
+                    "b": tier2[j],
+                    "tier": TIER_2
+                }
             )
             count += 1
     print(f"  ✓ SAME_TIER edges: {count} created")

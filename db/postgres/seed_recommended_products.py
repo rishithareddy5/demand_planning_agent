@@ -56,26 +56,34 @@ def create_table(cur):
 
 # ── Parse Excel ────────────────────────────────────────────────────────────────
 
+def _extract_distributor_id(raw_value):
+    if pd.notna(raw_value) and str(raw_value).strip():
+        return str(raw_value).strip().split()[0]
+    return None
+
+
+def _is_valid_product(product_name: str):
+    if not product_name or product_name.lower() == "nan":
+        return False
+
+    return product_name.lower() not in (
+        "recommended sku",
+        "product name",
+        "sku name",
+    )
+
+
+def _safe_str(value):
+    return str(value).strip() if pd.notna(value) else ""
+
+
+def _safe_rank(value):
+    return int(value) if pd.notna(value) else 99
+
+
 def load_from_excel(file_path: str):
-    """
-    Reads sheet '3. Recommendation Mapping' from the Excel file.
-
-    Structure (rows start at index 0):
-      Row 0: title row  — skip
-      Row 1: header row — skip
-      Row 2: header row — skip
-      Row 3+: data rows
-
-    Columns:
-      col 0: Distributor  (e.g. "D01 (Tier 2 · Super Stockist)") — only filled on first row of each distributor
-      col 1: rank number  (1, 2, 3 ...)
-      col 2: product name (e.g. "MALKIST CHEESE DISPLAY BOX")
-      col 3: reason       (recommendation rationale)
-    """
-
     df = pd.read_excel(file_path, sheet_name="3. Recommendation Mapping", header=None)
 
-    # Skip the first 3 rows (title + 2 header rows)
     df = df.iloc[3:].reset_index(drop=True)
     df.columns = ["distributor_raw", "rank", "product_name", "reason"]
 
@@ -84,33 +92,26 @@ def load_from_excel(file_path: str):
 
     for _, row in df.iterrows():
 
-        # If distributor column has a value, extract the ID (e.g. "D01" from "D01 (Tier 2 ...)")
-        if pd.notna(row["distributor_raw"]) and str(row["distributor_raw"]).strip():
-            raw = str(row["distributor_raw"]).strip()
-            # Take just the first token e.g. "D01"
-            current_distributor_id = raw.split()[0].strip()
+        # Extract distributor if present
+        extracted_id = _extract_distributor_id(row["distributor_raw"])
+        if extracted_id:
+            current_distributor_id = extracted_id
 
-        # Skip rows with no distributor context yet
         if not current_distributor_id:
             continue
 
-        # Skip rows with no product name
-        product_name = str(row["product_name"]).strip() if pd.notna(row["product_name"]) else ""
-        if not product_name or product_name.lower() == "nan":
+        product_name = _safe_str(row["product_name"])
+        if not _is_valid_product(product_name):
             continue
 
-        # Skip header-like rows
-        if product_name.lower() in ("recommended sku", "product name", "sku name"):
-            continue
-
-        rank = int(row["rank"]) if pd.notna(row["rank"]) else 99
-        reason = str(row["reason"]).strip() if pd.notna(row["reason"]) else ""
+        rank = _safe_rank(row["rank"])
+        reason = _safe_str(row["reason"])
 
         records.append({
             "distributor_id": current_distributor_id,
-            "product_name":   product_name,
-            "reason":         reason,
-            "priority_rank":  rank,
+            "product_name": product_name,
+            "reason": reason,
+            "priority_rank": rank,
         })
 
     return records
@@ -121,7 +122,7 @@ def load_from_excel(file_path: str):
 def seed(records, cur):
     # Clear existing rows first so re-running is safe
     cur.execute("DELETE FROM recommended_products;")
-    print(f"  Cleared existing rows")
+    print("Cleared existing rows")
 
     for rec in records:
         cur.execute("""

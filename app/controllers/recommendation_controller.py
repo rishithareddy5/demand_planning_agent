@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from typing import Annotated
 
 from app.core.database import get_db
 from app.services.fetch_distributor_context_service import FetchDistributorContextService
@@ -10,7 +11,10 @@ router = APIRouter(prefix="/recommendations", tags=["Recommendations"])
 
 
 @router.get("/{distributor_id}")
-def get_recommendations(distributor_id: str, db: Session = Depends(get_db)):
+def get_recommendations(
+    distributor_id: str,                            #annotation change  snr
+    db: Annotated[Session, Depends(get_db)]
+):
     context_service = FetchDistributorContextService(db)
     recommendation_service = SKURecommendationService()
     email_service = BuildDemandEmailService()

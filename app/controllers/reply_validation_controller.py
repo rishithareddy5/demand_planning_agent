@@ -31,7 +31,7 @@ def validate_reply(request: ValidateRequest):
             if not reply:
                 return {"status": "invalid", "reason": "Reply not found"}
 
-            reply_id, distributor_id, reply_type, confidence, needs_followup = reply
+            reply_id, distributor_id, reply_type, confidence, _unused = reply   #unused variable rem snr
 
             # Get the items
             cur.execute("""

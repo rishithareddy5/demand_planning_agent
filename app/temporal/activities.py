@@ -68,7 +68,7 @@ async def validate_reply_activity(parsed_reply_id: int) -> dict:
             if not reply:
                 return {"status": "invalid", "reason": "Reply not found", "total_confirmed_qty": 0}
 
-            reply_id, distributor_id, reply_type, confidence = reply
+            reply_id, distributor_id, reply_type, _unusedconf = reply
 
             if reply_type != "demand":
                 return {"status": "invalid", "reason": f"Type is '{reply_type}' — not a demand reply", "total_confirmed_qty": 0}

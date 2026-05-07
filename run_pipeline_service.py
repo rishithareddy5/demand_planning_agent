@@ -127,24 +127,16 @@ def merge_attachment_items(parsed_data: dict, attachment_items: list) -> dict:
 
 # ── Main poll cycle ────────────────────────────────────────────────────────────
 
+
+
 def run_one_poll_cycle():
     print("\n" + "=" * 70)
-    print("[Poller] Loading SKU master data...")
-    try:
-        load_sku_data(
-            primary_sales_file=PRIMARY_SALES_FILE,
-            recommended_products_file=RECOMMENDED_PRODUCTS_FILE
-        )
-        print("[Poller] SKU data loaded")
-    except Exception as e:
-        print(f"[Poller] SKU data load failed: {e}")
+
+    if not _load_sku_data_safe():
         return
 
-    print("[Poller] Reading Gmail inbox for distributor replies...")
-    try:
-        emails = read_unseen_replies()
-    except Exception as e:
-        print(f"[Poller] Gmail read failed: {e}")
+    emails = _fetch_emails_safe()
+    if emails is None:
         return
 
     if not emails:
@@ -154,64 +146,104 @@ def run_one_poll_cycle():
     print(f"[Poller] Found {len(emails)} new reply(s)")
 
     for index, item in enumerate(emails, start=1):
-        print(f"\n--- Email #{index} ---")
-        print(f"From:    {item['from_email']}")
-        print(f"Subject: {item['subject']}")
-        print(f"Body preview: {item['body'][:300]}")
-        print(f"Attachments: {item.get('attachment_paths', [])}")
-
-        # Parse plain text body
-        parsed = parse_reply(
-            from_email=item["from_email"],
-            body=item["body"]
-        )
-
-        # Parse any Excel attachments
-        attachment_items = []
-        for path in item.get("attachment_paths", []):
-            if is_excel_attachment(path):
-                print(f"[Poller] Parsing attachment: {path}")
-                try:
-                    excel_items = parse_excel_file(path)
-                    print(f"[Poller] Parsed {len(excel_items)} items from Excel")
-                    attachment_items.extend(excel_items)
-                except Exception as e:
-                    print(f"[Poller] Excel parse error: {e}")
-
-        parsed = merge_attachment_items(parsed, attachment_items)
-
-        print("[Poller] Final parsed output:")
-        pprint(parsed)
-
-        # Save to PostgreSQL
-        saved_id = save_parsed_reply(raw_email=item, parsed_data=parsed)
-
-        # Only trigger pipeline for new demand replies
-        if saved_id is not None and parsed.get("reply_type") == "demand":
-            print(f"[Poller] Emitting ReplyReceived → distributor={parsed['distributor_id']} id={saved_id}")
-            try:
-                emit_reply_received(
-                    distributor_id=parsed["distributor_id"],
-                    parsed_reply_id=saved_id
-                )
-                print("[Poller] RedPanda event emitted ✓")
-            except Exception as e:
-                print(f"[Poller] RedPanda emit failed: {e}")
-                # Fallback: signal Temporal directly without RedPanda
-                print("[Poller] Falling back to direct Temporal signal...")
-                try:
-                    signal_temporal(parsed["distributor_id"], saved_id)
-                except Exception as e2:
-                    print(f"[Poller] Direct Temporal signal also failed: {e2}")
-        elif saved_id is None:
-            print("[Poller] Email already processed — skipping.")
-        else:
-            print(f"[Poller] Reply type is '{parsed.get('reply_type')}' — no event emitted.")
-
-        if parsed.get("needs_followup"):
-            print("[Poller] Follow-up required for this reply.")
+        _handle_single_email(index, item)
 
     print("=" * 70)
+
+
+def _load_sku_data_safe():
+    print("[Poller] Loading SKU master data...")
+
+    try:
+        load_sku_data(
+            primary_sales_file=PRIMARY_SALES_FILE,
+            recommended_products_file=RECOMMENDED_PRODUCTS_FILE
+        )
+        print("[Poller] SKU data loaded")
+        return True
+    except Exception as e:
+        print(f"[Poller] SKU data load failed: {e}")
+        return False
+    
+def _fetch_emails_safe():
+    print("[Poller] Reading Gmail inbox for distributor replies...")
+
+    try:
+        return read_unseen_replies()
+    except Exception as e:
+        print(f"[Poller] Gmail read failed: {e}")
+        return None
+    
+
+def _handle_single_email(index, item):
+    print(f"\n--- Email #{index} ---")
+    print(f"From:    {item['from_email']}")
+    print(f"Subject: {item['subject']}")
+    print(f"Body preview: {item['body'][:300]}")
+    print(f"Attachments: {item.get('attachment_paths', [])}")
+
+    parsed = parse_reply(
+        from_email=item["from_email"],
+        body=item["body"]
+    )
+
+    attachment_items = _parse_attachments(item)
+
+    parsed = merge_attachment_items(parsed, attachment_items)
+
+    print("[Poller] Final parsed output:")
+    pprint(parsed)
+
+    _handle_persistence_and_events(item, parsed)
+
+def _parse_attachments(item):
+    attachment_items = []
+
+    for path in item.get("attachment_paths", []):
+        if is_excel_attachment(path):
+            print(f"[Poller] Parsing attachment: {path}")
+            try:
+                excel_items = parse_excel_file(path)
+                print(f"[Poller] Parsed {len(excel_items)} items from Excel")
+                attachment_items.extend(excel_items)
+            except Exception as e:
+                print(f"[Poller] Excel parse error: {e}")
+
+    return attachment_items
+
+def _handle_persistence_and_events(item, parsed):
+    saved_id = save_parsed_reply(raw_email=item, parsed_data=parsed)
+
+    if saved_id is not None and parsed.get("reply_type") == "demand":
+        print(f"[Poller] Emitting ReplyReceived → distributor={parsed['distributor_id']} id={saved_id}")
+
+        try:
+            emit_reply_received(
+                distributor_id=parsed["distributor_id"],
+                parsed_reply_id=saved_id
+            )
+            print("[Poller] RedPanda event emitted ✓")
+
+        except Exception as e:
+            print(f"[Poller] RedPanda emit failed: {e}")
+            print("[Poller] Falling back to direct Temporal signal...")
+
+            try:
+                signal_temporal(parsed["distributor_id"], saved_id)
+            except Exception as e2:
+                print(f"[Poller] Direct Temporal signal also failed: {e2}")
+
+    elif saved_id is None:
+        print("[Poller] Email already processed — skipping.")
+    else:
+        print(f"[Poller] Reply type is '{parsed.get('reply_type')}' — no event emitted.")
+
+    if parsed.get("needs_followup"):
+        print("[Poller] Follow-up required for this reply.")
+
+
+
+
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
