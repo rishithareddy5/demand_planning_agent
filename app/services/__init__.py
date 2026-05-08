@@ -67,6 +67,6 @@ class ReplyParserService:
                 items.append({
                     "product_name": product_name,
                     "quantity": quantity
-                })
+                }) 
 
         return items
