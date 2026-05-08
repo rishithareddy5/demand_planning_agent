@@ -13,6 +13,7 @@ __pycache__/
 
 # SonarQube
 .scannerwork/
+.sonar/
 sonar-scanner.zip
 
 # Logs

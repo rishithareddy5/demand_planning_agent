@@ -7,11 +7,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
-POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", 5432))
-POSTGRES_DB = os.getenv("POSTGRES_DB", "postgres")
-POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST") or "localhost"
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT") or 5432)
+POSTGRES_DB = os.getenv("POSTGRES_DB") or "postgres"
+POSTGRES_USER = os.getenv("POSTGRES_USER") or "postgres"
+
+# SonarQube fix → remove hardcoded password
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
+
+if not POSTGRES_PASSWORD:
+    raise ValueError("POSTGRES_PASSWORD environment variable is not set")
 
 
 def get_connection():
@@ -70,21 +75,30 @@ def create_tables_if_not_exist():
 def already_saved(message_id: str) -> bool:
     conn = get_connection()
     cur = conn.cursor()
+
     cur.execute(
         "SELECT id FROM parsed_replies WHERE message_id = %s LIMIT 1;",
         (message_id,)
     )
+
     result = cur.fetchone()
+
     cur.close()
     conn.close()
+
     return result is not None
 
 
-def save_parsed_reply(raw_email: Dict[str, Any], parsed_data: Dict[str, Any]) -> int | None:
+def save_parsed_reply(
+    raw_email: Dict[str, Any],
+    parsed_data: Dict[str, Any]
+) -> int | None:
     """
     Saves the parsed reply to the database.
-    Returns the new record ID if saved, or None if skipped (already exists).
+    Returns the new record ID if saved,
+    or None if skipped (already exists).
     """
+
     create_tables_if_not_exist()
 
     message_id = raw_email.get("message_id")
@@ -157,8 +171,10 @@ def save_parsed_reply(raw_email: Dict[str, Any], parsed_data: Dict[str, Any]) ->
         ))
 
     conn.commit()
+
     cur.close()
     conn.close()
 
     print(f"Saved parsed reply successfully → ID: {parsed_reply_id}")
+
     return parsed_reply_id
