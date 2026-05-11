@@ -3,7 +3,7 @@ uvicorn[standard]==0.29.0
 python-multipart==0.0.9
 
 sqlalchemy==2.0.30
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.10
 alembic==1.13.1
 
 falkordb==1.0.9

@@ -1,17 +1,33 @@
 .git
 .gitignore
 node_modules
+
+# Python cache
 __pycache__
 *.pyc
 *.pyo
 
-.env
-.env.*
+# Virtual envs
 venv/
 .venv/
 
+# Pytest / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Environment variables
+.env
+.env.*
+
+# SonarQube
 .scannerwork
+.sonar
+
+# Logs
 *.log
 
+# Temporary folders
 attachments
 temp

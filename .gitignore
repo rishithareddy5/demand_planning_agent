@@ -7,6 +7,12 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Pytest / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
 # Environment variables / secrets
 .env
 .env.*
