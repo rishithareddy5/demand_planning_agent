@@ -10,6 +10,7 @@ from app.inngest_functions import inngest_client, inngest_functions
 # ── Routers ───────────────────────────────────────────────────────────────────
 from app.controllers.reply_validation_controller import router as validation_router
 from app.controllers.postal_webhook_controller import router as webhook_router  # ← Fix: was never registered
+from app.controllers.whatsapp_webhook_controller import router as whatsapp_router  # ← New: WhatsApp webhook router
 
 
 # ── Lifespan: runs once on startup ────────────────────────────────────────────
@@ -75,3 +76,5 @@ def send_bulk():
         {"id": "D05", "email": "poojithak493@gmail.com"},
     ]
     return send_bulk_emails(distributors)
+
+app.include_router(whatsapp_router)  # ← New: Register WhatsApp webhook router
