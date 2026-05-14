@@ -1,11 +1,20 @@
 import logging
 import os
 import requests
+import pandas as pd
+
+from app.services.reply_parser_service import (
+    parse_demand_lines,
+    calculate_confidence
+)
 
 from fastapi import APIRouter, Form, Response
 
 from app.services.whatsapp_service import send_whatsapp_message
 from app.services.reply_parser_service import parse_reply
+
+ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -50,7 +59,10 @@ async def receive_whatsapp(
 
             os.makedirs("whatsapp_uploads", exist_ok=True)
 
-            file_response = requests.get(MediaUrl0)
+            file_response = requests.get(
+                MediaUrl0,
+                auth=(ACCOUNT_SID, AUTH_TOKEN)
+            )
 
             file_name = f"whatsapp_uploads/demand_upload.xlsx"
 
@@ -59,10 +71,52 @@ async def receive_whatsapp(
 
             logger.info(f"[WhatsApp] File saved: {file_name}")
 
-            response_text = (
-                "✅ Excel attachment received successfully.\n\n"
-                "Demand sheet uploaded for processing."
-            )
+            # ----------------------------------------
+            # READ EXCEL
+            # ----------------------------------------
+            df = pd.read_excel(file_name)
+
+            parsed_items = []
+
+            for _, row in df.iterrows():
+
+                row_text = " ".join(
+                    [str(value) for value in row.values if pd.notna(value)]
+                )
+
+                items = parse_demand_lines([row_text])
+
+                if items:
+                    parsed_items.extend(items)
+
+            # ----------------------------------------
+            # AGGREGATE RESULTS
+            # ----------------------------------------
+            if parsed_items:
+
+                confidence = calculate_confidence(
+                    distributor_id="UNKNOWN",
+                    matched_items=parsed_items,
+                    reply_type="demand"
+                )
+
+                items_text = "\n".join([
+                    f"• {item['sku_name'].title()} — {item['quantity']} units"
+                    for item in parsed_items
+                ])
+
+                response_text = (
+                    f"✅ Excel Demand Parsed Successfully\n\n"
+                    f"Confidence: {int(confidence * 100)}%\n\n"
+                    f"Products:\n"
+                    f"{items_text}"
+                )
+
+            else:
+
+                response_text = (
+                    "⚠️ Could not extract demand items from Excel."
+                )
 
         except Exception as e:
 
