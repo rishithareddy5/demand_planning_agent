@@ -9,9 +9,16 @@ from app.services.reply_parser_service import (
 )
 
 from fastapi import APIRouter, Form, Response
-
+from paddleocr import PaddleOCR
 from app.services.whatsapp_service import send_whatsapp_message
 from app.services.reply_parser_service import parse_reply
+from PIL import Image, ImageEnhance
+
+ocr = PaddleOCR(
+    use_angle_cls=True,  #  ocr instance
+    lang='en',
+    enable_mkldnn=False
+)
 
 ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
@@ -71,38 +78,247 @@ async def receive_whatsapp(
 
             logger.info(f"[WhatsApp] File saved: {file_name}")
 
+        
+        # ---------------------------------------------------
+        # IMAGE FILES
+        # ---------------------------------------------------
+            if MediaContentType0 and MediaContentType0.startswith("image/"):
+
+                logger.info("[WhatsApp] Image received")
+
+                image_path = "whatsapp_uploads/demand_image.jpg"
+
+                with open(image_path, "wb") as f:
+                    f.write(file_response.content)
+
+                logger.info(f"[WhatsApp] Image saved: {image_path}")
+
+
+                # ----------------------------------------
+                # IMAGE PREPROCESSING
+                # ----------------------------------------
+
+                image = Image.open(image_path)
+
+                # Upscale image
+                image = image.resize(
+                    (image.width * 2, image.height * 2)
+                )
+
+                # Increase sharpness
+                sharpness = ImageEnhance.Sharpness(image)
+                image = sharpness.enhance(2.5)
+
+                # Increase contrast
+                contrast = ImageEnhance.Contrast(image)
+                image = contrast.enhance(1.8)
+
+                processed_image_path = (
+                    "whatsapp_uploads/processed_image.jpg"
+                )
+
+                image.save(processed_image_path)
+
+                logger.info(
+                    f"[WhatsApp] Processed image saved: "
+                    f"{processed_image_path}"
+                )
+
+                # ----------------------------------------
+                # OCR USING PADDLEOCR
+                # ----------------------------------------
+                result = ocr.predict(processed_image_path)
+                texts = result[0]["rec_texts"]
+                boxes = result[0]["rec_boxes"]
+
+                for text, box in zip(texts, boxes):
+
+                    print("TEXT:", text)
+                    print("BOX:", box)
+                    print("--------")
+
+                extracted_lines = result[0]["rec_texts"]
+
+                extracted_text = "\n".join(extracted_lines)
+
+                logger.info(
+                    f"[WhatsApp] OCR Extracted Text:\n{extracted_text}"
+                )
+
+                # ----------------------------------------
+                # STRUCTURED OCR TABLE PARSING
+                # ----------------------------------------
+
+                texts = result[0]["rec_texts"]
+
+                products = []
+
+                i = 0
+
+                while i < len(texts):
+
+                    current_text = texts[i].strip()
+
+                    if (
+                            current_text.upper().startswith("SKU")
+                            and current_text.upper() not in [
+                                "SKU_ID",
+                                "SKU NAME",
+                                "SKU_DESCRIPTION",
+                                "SKU DESCRIPTION"
+                            ]
+                        ):
+
+                        try:
+
+                            sku_id = current_text
+
+                            sku_name = texts[i + 1].strip()
+
+                            quantity_text = texts[i + 3].strip()
+
+                            quantity = int(
+                                ''.join(
+                                    filter(str.isdigit, quantity_text)
+                                )
+                            )
+
+                            products.append({
+                                "sku_id": sku_id,
+                                "sku_name": sku_name,
+                                "quantity": quantity
+                            })
+
+                            i += 4
+
+                        except Exception as e:
+
+                            logger.error(f"OCR row parse failed: {e}")
+
+                            i += 1
+
+                    else:
+
+                        i += 1
+
+                logger.info(f"[WhatsApp] Structured OCR Products: {products}")
+
+                if products:
+
+                    items_text = "\n".join([
+                        f"• {item['sku_name'].title()} — "
+                        f"{item['quantity']} units"
+                        for item in products
+                    ])
+
+                    response_text = (
+                        f"🖼️ Image Demand Parsed Successfully\n\n"
+                        f"{items_text}"
+                    )
+
+                else:
+
+                    response_text = (
+                        "⚠️ Could not parse image rows."
+                    )
+
+                send_whatsapp_message(
+                    sender,
+                    response_text
+                )
+
+                return Response(
+                    content="<?xml version='1.0'?><Response></Response>",
+                    media_type="text/xml"
+                )
+                
             # ----------------------------------------
             # READ EXCEL
             # ----------------------------------------
             df = pd.read_excel(file_name)
 
-            parsed_items = []
+            product_col, qty_col = detect_columns(df)
 
-            for _, row in df.iterrows():
+            parsed_lines = []
 
-                row_text = " ".join(
-                    [str(value) for value in row.values if pd.notna(value)]
+            # ---------------------------------------------------
+            # COLUMN-AWARE PARSING
+            # ---------------------------------------------------
+            if product_col and qty_col:
+
+                logger.info(
+                    f"[WhatsApp] Detected columns: "
+                    f"{product_col}, {qty_col}"
                 )
 
-                items = parse_demand_lines([row_text])
+                for _, row in df.iterrows():
 
-                if items:
-                    parsed_items.extend(items)
+                    try:
+
+                        product = str(row[product_col]).strip()
+                        quantity = row[qty_col]
+
+                        if pd.isna(product) or pd.isna(quantity):
+                            continue
+
+                        # FULL ROW CONTEXT
+                        row_context = " ".join(
+                            [
+                                str(value)
+                                for value in row.values
+                                if pd.notna(value)
+                            ]
+                        )
+
+                        # HYBRID LINE
+                        line = f"{product} - {quantity} {row_context}"
+
+                        parsed_lines.append(line)
+
+                    except Exception:
+                        continue
+
+            # ---------------------------------------------------
+            # FALLBACK: FULL ROW PARSING
+            # ---------------------------------------------------
+            else:
+
+                logger.warning(
+                    "[WhatsApp] Could not detect columns. "
+                    "Using full-row fallback parsing."
+                )
+
+                for _, row in df.iterrows():
+
+                    row_text = " ".join(
+                        [
+                            str(value)
+                            for value in row.values
+                            if pd.notna(value)
+                        ]
+                    )
+
+                    if row_text.strip():
+                        parsed_lines.append(row_text)
+
+            combined_text = "\n".join(parsed_lines)
+
+            parsed = parse_reply(sender, combined_text)
 
             # ----------------------------------------
             # AGGREGATE RESULTS
             # ----------------------------------------
-            if parsed_items:
+            if parsed["items"]:
 
                 confidence = calculate_confidence(
                     distributor_id="UNKNOWN",
-                    matched_items=parsed_items,
+                    matched_items=parsed["items"],
                     reply_type="demand"
                 )
 
                 items_text = "\n".join([
                     f"• {item['sku_name'].title()} — {item['quantity']} units"
-                    for item in parsed_items
+                    for item in parsed["items"]
                 ])
 
                 response_text = (
@@ -143,7 +359,7 @@ async def receive_whatsapp(
 
     logger.info(f"[WhatsApp] Parsed Output: {parsed}")
 
-        # ---------------------------------------------------
+    # ---------------------------------------------------
     # SUCCESSFUL DEMAND PARSE
     # ---------------------------------------------------
     if parsed["items"]:
@@ -225,3 +441,38 @@ async def receive_whatsapp(
         content="<?xml version='1.0'?><Response></Response>",
         media_type="text/xml"
     )
+
+def detect_columns(df):
+
+    normalized = {
+        col.lower().strip(): col
+        for col in df.columns
+    }
+
+    product_col = None
+    qty_col = None
+
+    product_keywords = [
+        "product",
+        "sku",
+        "item",
+        "description",
+        "product name"
+    ]
+
+    qty_keywords = [
+        "qty",
+        "quantity",
+        "demand",
+        "units"
+    ]
+
+    for key, original in normalized.items():
+
+        if any(word in key for word in product_keywords):
+            product_col = original
+
+        if any(word in key for word in qty_keywords):
+            qty_col = original
+
+    return product_col, qty_col
