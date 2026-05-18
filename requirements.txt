@@ -38,7 +38,7 @@ twilio==9.10.9
 # OCR Dependencies
 Pillow==10.2.0
 paddleocr==2.7.3
-paddlepaddle==2.6.1
+paddlepaddle==2.6.2
 
 # Optional: Fallback OCR Engine (EasyOCR)
 # Uncomment if you want dual-engine support
