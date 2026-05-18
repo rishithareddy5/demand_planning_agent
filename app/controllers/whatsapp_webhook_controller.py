@@ -403,7 +403,7 @@ async def receive_whatsapp(
         response_text = (
     "✅ Acknowledged.\n\n"
     "No demand recorded for this cycle."
-)
+    )
 
     # ---------------------------------------------------
     # NEEDS FOLLOWUP
