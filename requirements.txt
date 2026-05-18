@@ -34,3 +34,25 @@ inngest==0.5.12
 
 #WA
 twilio==9.10.9
+
+# OCR Dependencies
+Pillow==10.2.0
+paddleocr==2.7.3
+paddlepaddle==2.6.1
+
+# Optional: Fallback OCR Engine (EasyOCR)
+# Uncomment if you want dual-engine support
+# easyocr==1.7.1
+# torch==2.3.0
+# torchvision==0.18.0
+ 
+# Optional: Tesseract OCR (lightweight fallback)
+# Requires system install: apt-get install tesseract-ocr
+# pytesseract==0.3.10
+ 
+# ============================================
+# Audio Transcription (Future Enhancement)
+# ============================================
+# openai-whisper==20231117
+# ffmpeg-python==0.2.0
+# pydub==0.25.1
