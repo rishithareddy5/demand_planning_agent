@@ -54,24 +54,25 @@ def clean_email_body(body: str) -> str:
 
 
 def split_reply_into_lines(body: str) -> List[str]:
+    """
+    Split WhatsApp/email messages into separate demand lines
+    """
+
     if not body:
         return []
 
     normalized = body.replace(";", "\n").replace("|", "\n")
+
     lines: List[str] = []
 
-    for raw_line in normalized.split("\n"):
-        raw_line = raw_line.strip()
-        if not raw_line:
-            continue
+    for raw_line in normalized.splitlines():
 
-        comma_parts = [part.strip() for part in raw_line.split(",") if part.strip()]
-        if comma_parts:
-            lines.extend(comma_parts)
-        else:
-            lines.append(raw_line)
+        cleaned = raw_line.strip()
 
-    return [line for line in lines if line]
+        if cleaned:
+            lines.append(cleaned)
+
+    return lines
 
 
 def get_distributor_id(from_email: str, body: str) -> str:
@@ -223,7 +224,11 @@ def match_sku(text: str, min_score: int = 75) -> Tuple[Optional[str], Optional[s
     if not cleaned_text or not sku_names:
         return None, None, 0
 
-    best_match = process.extractOne(cleaned_text, sku_names, scorer=fuzz.token_sort_ratio)
+    best_match = process.extractOne(
+    cleaned_text,
+    sku_names,
+    scorer=fuzz.partial_ratio
+)
     if not best_match:
         return None, None, 0
 
@@ -232,27 +237,49 @@ def match_sku(text: str, min_score: int = 75) -> Tuple[Optional[str], Optional[s
     if score < min_score:
         return None, None, score
 
-    return sku_map[matched_name], matched_name, score
+    matched_value = sku_map.get(matched_name)
+
+    if isinstance(matched_value, str):
+        return matched_value, matched_name, score
+
+    if isinstance(matched_value, dict):
+        return (
+            matched_value.get("sku_id"),
+            matched_value.get("sku_name") or matched_name,
+            score
+        )
+
+    return None, matched_name, score
 
 
 def parse_demand_lines(lines: List[str]) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
 
     for line in lines:
+
         quantity, unit = extract_quantity_and_unit(line)
+
+        if quantity is None:
+            continue
+
         sku_id, sku_name, match_score = match_sku(line)
 
-        if quantity is not None and sku_id:
-            items.append({
-                "sku_id": sku_id,
-                "sku_name": sku_name,
-                "quantity": quantity,
-                "unit": unit,
-                "matched_text": line.strip(),
-                "match_score": match_score,
-                "source": "email_body",
-                "sheet_name": None,
-            })
+        # Fallback name extraction
+        if not sku_name:
+            cleaned_name = remove_quantity_words(line)
+            sku_name = cleaned_name.title()
+
+        # STILL append even without sku_id
+        items.append({
+            "sku_id": sku_id,
+            "sku_name": sku_name,
+            "quantity": quantity,
+            "unit": unit,
+            "matched_text": line.strip(),
+            "match_score": match_score,
+            "source": "email_body",
+            "sheet_name": None,
+        })
 
     return items
 

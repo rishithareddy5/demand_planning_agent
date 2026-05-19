@@ -14,9 +14,19 @@ from app.controllers.whatsapp_webhook_controller_v3 import router as whatsapp_ro
 
 
 # ── Lifespan: runs once on startup ────────────────────────────────────────────
-@asynccontextmanager
+"""@asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_confirmed_demands_table()
+    yield"""
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        ensure_confirmed_demands_table()
+        print("[INFO] PostgreSQL connected")                        # temporary bypass
+    except Exception as e:
+        print(f"[WARNING] PostgreSQL unavailable: {e}")
+
     yield
 
 

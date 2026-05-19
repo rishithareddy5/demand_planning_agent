@@ -194,8 +194,19 @@ def _parse_row(row, sheet_name, sku_id_col, product_col, qty_col):
     )
 
     # skip unmatched rows
+    # If no SKU match found, still return raw product data
     if not sku_id:
-        return None
+        return {
+            "sku_id": str(sku_id_value).strip() if sku_id_value else None,
+            "sku_name": product_text if product_text else "Unknown Product",
+            "quantity": quantity,
+            "unit": None,
+            "matched_text": f"{product_text or sku_id_value} | {quantity}",
+            "match_score": 0,
+            "source": "excel_attachment",
+            "sheet_name": sheet_name,
+            "match_type": "raw_excel",
+        }
 
     return {
         "sku_id": sku_id,
@@ -208,7 +219,6 @@ def _parse_row(row, sheet_name, sku_id_col, product_col, qty_col):
         "sheet_name": sheet_name,
         "match_type": match_type,
     }
-
 
 
 def is_excel_attachment(filename: str) -> bool:

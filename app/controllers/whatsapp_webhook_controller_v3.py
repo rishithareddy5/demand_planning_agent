@@ -17,6 +17,7 @@ from app.services.reply_parser_service import (
     calculate_confidence,
     match_sku
 )
+from app.services.attachment_parser_service import parse_excel_file
 from app.services.ocr_service import get_ocr_service
 
 # Optional: Audio service (only if installed)
@@ -330,6 +331,34 @@ async def _handle_image_ocr(sender: str, image_data: bytes) -> Response:
 # ===================================================================
 # HANDLER: EXCEL
 # ===================================================================
+def _extract_product_name(item: dict) -> str:
+    """
+    Extract clean product name from parsed item
+    """
+
+    # Best case
+    if item.get("sku_name"):
+        return item["sku_name"].title()
+
+    raw = item.get("matched_text", "")
+
+    if not raw:
+        return "Unknown Product"
+
+    # Split before duplicate SKU section starts
+    if "SKU" in raw:
+        raw = raw.split("SKU")[0]
+
+    # Remove trailing quantity
+    parts = raw.rsplit("-", 1)
+
+    if len(parts) > 1:
+        raw = parts[0]
+
+    # Clean spacing
+    raw = " ".join(raw.split())
+
+    return raw.title()
 
 async def _handle_excel(sender: str, file_data: bytes) -> Response:
     """Handle Excel attachment parsing"""
@@ -369,14 +398,15 @@ async def _handle_excel(sender: str, file_data: bytes) -> Response:
         
         combined_text = "\n".join(parsed_lines)
         parsed = parse_reply(sender, combined_text)
+        logger.info(f"[Excel DEBUG] Parsed items: {parsed['items']}")
         
         if parsed["items"]:
             confidence = calculate_confidence("UNKNOWN", parsed["items"], "demand")
             
             items_text = "\n".join([
-                f"• {item['sku_name'].title()} — {item['quantity']} units"
-                for item in parsed["items"]
-            ])
+            f"• {_extract_product_name(item)} — {item['quantity']} units"
+            for item in parsed["items"]
+        ])
             
             emoji = "✅" if confidence >= 0.75 else "⚠️"
             
@@ -406,6 +436,7 @@ async def _handle_text_message(sender: str, body: str) -> Response:
     """Handle plain text demand messages"""
     
     parsed = parse_reply(sender, body)
+    logger.info(f"[TEXT DEBUG] {parsed}")
     
     logger.info(f"[Text] Parsed: {len(parsed.get('items', []))} items")
     
@@ -413,7 +444,7 @@ async def _handle_text_message(sender: str, body: str) -> Response:
         confidence_percent = int(parsed["confidence"] * 100)
         
         items_text = "\n".join([
-            f"• {item['sku_name'].title()} — {item['quantity']} units"
+            f"• {_extract_product_name(item)} — {item['quantity']} units"
             for item in parsed["items"]
         ])
         
@@ -445,23 +476,90 @@ async def _handle_text_message(sender: str, body: str) -> Response:
     return _twilio_empty_response()
 
 
+def _clean_product_name(item: dict) -> str:
+    """
+    Clean product display name for WhatsApp responses
+    """
+
+    # Best case: real sku_name exists
+    if item.get("sku_name"):
+        return item["sku_name"]
+
+    raw = item.get("matched_text", "")
+
+    if not raw:
+        return "Unknown Product"
+
+    # Remove quantity tail
+    raw = raw.split("|")[0]
+
+    # Remove duplicate SKU codes like SKU01
+    words = raw.split()
+
+    cleaned = []
+
+    for word in words:
+
+        # Skip SKU codes
+        if word.upper().startswith("SKU"):
+            continue
+
+        # Skip pure numbers
+        if word.isdigit():
+            continue
+
+        cleaned.append(word)
+
+    # Limit overly long responses
+    result = " ".join(cleaned[:8]).strip()
+
+    return result or "Unknown Product"
+
 # ===================================================================
 # UTILITIES
 # ===================================================================
 
 def _detect_columns(df: pd.DataFrame) -> tuple:
-    """Detect product and quantity columns"""
-    normalized = {col.lower().strip(): col for col in df.columns}
-    
+    """
+    Detect best product + quantity columns
+    Priority:
+    sku_name > product_name > description
+    """
+
+    normalized = {
+        col.lower().strip(): col
+        for col in df.columns
+    }
+
     product_col = None
     qty_col = None
-    
+
+    # PRIORITY 1 — sku_name
     for key, original in normalized.items():
-        if any(w in key for w in ["product", "sku", "item", "description", "name"]):
+        if key == "sku_name":
             product_col = original
+            break
+
+    # PRIORITY 2 — product/name/item columns
+    if not product_col:
+        for key, original in normalized.items():
+            if any(w in key for w in ["product", "name", "item"]):
+                product_col = original
+                break
+
+    # PRIORITY 3 — description fallback
+    if not product_col:
+        for key, original in normalized.items():
+            if "description" in key:
+                product_col = original
+                break
+
+    # Quantity column
+    for key, original in normalized.items():
         if any(w in key for w in ["qty", "quantity", "demand", "units"]):
             qty_col = original
-    
+            break
+
     return product_col, qty_col
 
 

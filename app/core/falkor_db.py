@@ -17,9 +17,21 @@ class FalkorSettings(BaseSettings):
 
 settings = FalkorSettings()
 
-db = FalkorDB(
+"""db = FalkorDB(
     host=settings.FALKORDB_HOST,
     port=settings.FALKORDB_PORT
 )
 
-graph = db.select_graph(settings.FALKORDB_GRAPH_NAME)
+graph = db.select_graph(settings.FALKORDB_GRAPH_NAME)"""
+
+try:
+    db = FalkorDB()
+    graph = db.select_graph("demand_graph")
+
+except Exception as e:
+    print(f"[WARNING] FalkorDB unavailable")
+    graph = None
+    
+except Exception as e:
+    print(f"[WARNING] FalkorDB unavailable: {e}")
+    graph = None

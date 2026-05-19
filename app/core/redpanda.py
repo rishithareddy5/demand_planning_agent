@@ -12,3 +12,13 @@ def get_consumer(group_id: str) -> Consumer:
         "group.id": group_id,
         "auto.offset.reset": "earliest",
     })
+try:
+    producer = Producer({
+        "bootstrap.servers": BOOTSTRAP
+    })
+
+    print("[INFO] RedPanda connected")
+
+except Exception as e:
+    print("[WARNING] RedPanda unavailable")
+    producer = None
