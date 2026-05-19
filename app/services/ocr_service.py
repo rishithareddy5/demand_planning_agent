@@ -584,3 +584,22 @@ def get_ocr_service() -> OCRService:
     if _ocr_service is None:
         _ocr_service = OCRService(preferred_engine=OCREngine.PADDLEOCR)
     return _ocr_service
+
+
+def check_dependencies():
+    """
+    Check OCR dependencies availability
+    """
+    try:
+        from paddleocr import PaddleOCR
+        from PIL import Image
+        return {
+            "paddleocr": True,
+            "pillow": True,
+            "status": "ok"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
