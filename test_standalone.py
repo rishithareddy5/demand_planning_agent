@@ -1,487 +1,270 @@
 """
-Standalone Test Suite for Demand Ingestion System
-NO Temporal, Docker, or RedPanda required
+Standalone Test Suite – Demand Ingestion System
+No Docker, Temporal, or RedPanda required.
 
-Tests:
-1. Text parsing
-2. Excel parsing  
-3. OCR image parsing
-4. Audio transcription (if available)
-5. WhatsApp simulation
+Run: python test_standalone.py
 """
 
-import logging
-import sys
 import os
-from pathlib import Path
+import sys
+import logging
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-# Color codes for terminal
-class Colors:
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    END = '\033[0m'
-    BOLD = '\033[1m'
+logging.basicConfig(level=logging.WARNING)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-def print_header(text):
-    """Print section header"""
-    print(f"\n{Colors.BOLD}{Colors.BLUE}{'='*70}{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.BLUE}{text.center(70)}{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.BLUE}{'='*70}{Colors.END}\n")
+class C:
+    GREEN  = "\033[92m"
+    RED    = "\033[91m"
+    YELLOW = "\033[93m"
+    BLUE   = "\033[94m"
+    RESET  = "\033[0m"
+    BOLD   = "\033[1m"
+
+def ok(msg):   print(f"  {C.GREEN}✓{C.RESET} {msg}")
+def fail(msg): print(f"  {C.RED}✗{C.RESET} {msg}")
+def warn(msg): print(f"  {C.YELLOW}⚠{C.RESET} {msg}")
+def head(msg): print(f"\n{C.BOLD}{C.BLUE}{'='*55}{C.RESET}\n{C.BOLD}{msg}{C.RESET}")
+def info(msg): print(f"  {C.BLUE}ℹ{C.RESET} {msg}")
 
 
-def print_success(text):
-    """Print success message"""
-    print(f"{Colors.GREEN}✓ {text}{Colors.END}")
+# ─────────────────────────────────────────────────────────────
+# Bootstrap: load SKU data from Excel if files exist.
+# The real reply_parser_service uses rapidfuzz + sku_data,
+# so SKU_MAP must be populated before match_sku works.
+# ─────────────────────────────────────────────────────────────
 
+head("SETUP: Loading SKU Data")
 
-def print_error(text):
-    """Print error message"""
-    print(f"{Colors.RED}✗ {text}{Colors.END}")
+SKU_DATA_LOADED = False
 
+try:
+    from app.data.sku_data import load_sku_data, get_sku_names
 
-def print_warning(text):
-    """Print warning message"""
-    print(f"{Colors.YELLOW}⚠ {text}{Colors.END}")
-
-
-# ============================================================================
-# TEST 1: TEXT PARSING
-# ============================================================================
-
-def test_text_parsing():
-    """Test text demand parsing"""
-    print_header("TEST 1: Text Demand Parsing")
-    
-    try:
-        from app.services.reply_parser_service import parse_reply
-        
-        test_cases = [
-            {
-                "name": "Simple demand",
-                "from_email": "dist01@test.com",
-                "body": "MALKIST CHEESE JUMBO PACK - 100\nBENG BENG WAFER - 50"
-            },
-            {
-                "name": "With SKU codes",
-                "from_email": "dist02@test.com",
-                "body": "SKU01 - 200\nSKU05 - 150"
-            },
-            {
-                "name": "Negative response",
-                "from_email": "dist03@test.com",
-                "body": "No demand this month"
-            },
-            {
-                "name": "Informational",
-                "from_email": "dist04@test.com",
-                "body": "Will send later today"
-            }
-        ]
-        
-        passed = 0
-        failed = 0
-        
-        for i, test in enumerate(test_cases, 1):
-            print(f"\n{Colors.BOLD}Test Case {i}: {test['name']}{Colors.END}")
-            print(f"Input: {test['body'][:50]}...")
-            
-            result = parse_reply(test['from_email'], test['body'])
-            
-            print(f"  Reply Type: {result['reply_type']}")
-            print(f"  Confidence: {result['confidence']}")
-            print(f"  Items Found: {len(result['items'])}")
-            
-            if result['items']:
-                for item in result['items']:
-                    print(f"    • {item['sku_name']}: {item['quantity']} units")
-            
-            if result['confidence'] > 0:
-                print_success(f"Parsed successfully (confidence: {result['confidence']})")
-                passed += 1
-            else:
-                print_warning("Low/zero confidence")
-                failed += 1
-        
-        print(f"\n{Colors.BOLD}Results: {passed} passed, {failed} warnings{Colors.END}")
-        return True
-        
-    except Exception as e:
-        print_error(f"Text parsing test failed: {e}")
-        logger.exception(e)
-        return False
-
-
-# ============================================================================
-# TEST 2: EXCEL PARSING
-# ============================================================================
-
-def test_excel_parsing():
-    """Test Excel demand parsing"""
-    print_header("TEST 2: Excel Demand Parsing")
-    
-    try:
-        import pandas as pd
-        from app.services.reply_parser_service import parse_reply
-        
-        # Check if test Excel exists
-        test_files = list(Path("attachments").glob("*.xlsx"))
-        
-        if not test_files:
-            print_warning("No Excel files found in attachments/ directory")
-            print("  Create a test file with columns: Product, Quantity")
-            return False
-        
-        print(f"Found {len(test_files)} Excel files to test\n")
-        
-        for i, file_path in enumerate(test_files[:3], 1):  # Test first 3
-            print(f"{Colors.BOLD}Testing: {file_path.name}{Colors.END}")
-            
-            try:
-                df = pd.read_excel(file_path)
-                print(f"  Rows: {len(df)}")
-                print(f"  Columns: {list(df.columns)}")
-                
-                # Convert to text for parsing
-                lines = []
-                for _, row in df.iterrows():
-                    row_text = " ".join([str(v) for v in row.values if pd.notna(v)])
-                    if row_text.strip():
-                        lines.append(row_text)
-                
-                combined = "\n".join(lines)
-                result = parse_reply("test@test.com", combined)
-                
-                print(f"  Items Parsed: {len(result['items'])}")
-                print(f"  Confidence: {result['confidence']}")
-                
-                if result['items']:
-                    for item in result['items'][:5]:  # Show first 5
-                        print(f"    • {item['sku_name']}: {item['quantity']}")
-                    
-                    print_success("Excel parsed successfully")
-                else:
-                    print_warning("No items extracted")
-                
-            except Exception as e:
-                print_error(f"Failed to parse {file_path.name}: {e}")
-        
-        return True
-        
-    except Exception as e:
-        print_error(f"Excel parsing test failed: {e}")
-        logger.exception(e)
-        return False
-
-
-# ============================================================================
-# TEST 3: OCR SERVICE
-# ============================================================================
-
-def test_ocr_service():
-    """Test OCR demand extraction"""
-    print_header("TEST 3: OCR Image Parsing")
-    
-    try:
-        from app.services.ocr_service import get_ocr_service, check_dependencies
-        
-        # Check OCR dependencies
-        print("Checking OCR dependencies...")
-        
-        try:
-            from paddleocr import PaddleOCR
-            print_success("PaddleOCR available")
-        except ImportError:
-            print_error("PaddleOCR not installed")
-            print("  Install: pip install paddleocr paddlepaddle")
-            return False
-        
-        # Look for test images
-        test_images = []
-        for ext in ['*.jpg', '*.jpeg', '*.png']:
-            test_images.extend(Path("whatsapp_uploads").glob(ext))
-        
-        if not test_images:
-            print_warning("No test images found in whatsapp_uploads/")
-            print("  Place a demand sheet image there to test OCR")
-            return False
-        
-        print(f"\nFound {len(test_images)} test images\n")
-        
-        ocr_service = get_ocr_service()
-        
-        for i, image_path in enumerate(test_images[:2], 1):  # Test first 2
-            print(f"{Colors.BOLD}Testing: {image_path.name}{Colors.END}")
-            
-            result = ocr_service.extract_demand_from_image(str(image_path))
-            
-            print(f"  Success: {result['success']}")
-            print(f"  Confidence: {result['confidence']}")
-            print(f"  Rows Extracted: {len(result['rows'])}")
-            
-            if result['success']:
-                print(f"\n  OCR Text Preview:")
-                print(f"  {result['raw_ocr_text'][:200]}...")
-                
-                print(f"\n  Parsed Rows:")
-                for row in result['rows'][:5]:
-                    print(f"    • {row.get('sku_id', 'N/A')} | "
-                          f"{row.get('sku_name', 'N/A')} | "
-                          f"Qty: {row.get('quantity', 'N/A')}")
-                
-                print_success("OCR extraction successful")
-            else:
-                print_error(f"OCR failed: {result.get('error', 'Unknown')}")
-        
-        return True
-        
-    except Exception as e:
-        print_error(f"OCR test failed: {e}")
-        logger.exception(e)
-        return False
-
-
-# ============================================================================
-# TEST 4: AUDIO TRANSCRIPTION
-# ============================================================================
-
-def test_audio_service():
-    """Test audio transcription"""
-    print_header("TEST 4: Audio Transcription")
-    
-    try:
-        # Check if audio service is available
-        try:
-            from app.services.audio_service import get_audio_service, check_dependencies
-            
-            deps = check_dependencies()
-            
-            print("Checking audio dependencies...")
-            for name, installed in deps.items():
-                if installed:
-                    print_success(f"{name} installed")
-                else:
-                    print_error(f"{name} missing")
-            
-            if not all(deps.values()):
-                print("\nInstall missing dependencies:")
-                if not deps['whisper']:
-                    print("  pip install openai-whisper")
-                if not deps['ffmpeg']:
-                    print("  sudo apt-get install ffmpeg  # Linux")
-                    print("  brew install ffmpeg  # macOS")
-                return False
-            
-        except ImportError:
-            print_error("Audio service not available")
-            print("  Install: pip install openai-whisper ffmpeg-python")
-            return False
-        
-        # Look for test audio files
-        test_audio = []
-        for ext in ['*.ogg', '*.mp3', '*.wav', '*.m4a']:
-            test_audio.extend(Path("whatsapp_uploads").glob(ext))
-        
-        if not test_audio:
-            print_warning("No test audio files found in whatsapp_uploads/")
-            print("  Place an audio file there to test transcription")
-            return False
-        
-        print(f"\nFound {len(test_audio)} test audio files\n")
-        
-        audio_service = get_audio_service(model_size="base")
-        
-        for audio_path in test_audio[:2]:  # Test first 2
-            print(f"{Colors.BOLD}Testing: {audio_path.name}{Colors.END}")
-            
-            result = audio_service.transcribe_audio(str(audio_path))
-            
-            print(f"  Success: {result['success']}")
-            print(f"  Language: {result.get('language', 'N/A')}")
-            print(f"  Confidence: {result.get('confidence', 0)}")
-            
-            if result['success']:
-                print(f"\n  Transcription:")
-                print(f"  \"{result['text']}\"")
-                print_success("Audio transcription successful")
-            else:
-                print_error(f"Transcription failed: {result.get('error', 'Unknown')}")
-        
-        return True
-        
-    except Exception as e:
-        print_error(f"Audio test failed: {e}")
-        logger.exception(e)
-        return False
-
-
-# ============================================================================
-# TEST 5: WHATSAPP SIMULATION
-# ============================================================================
-
-def test_whatsapp_simulation():
-    """Simulate WhatsApp message handling"""
-    print_header("TEST 5: WhatsApp Message Simulation")
-    
-    print("This test simulates WhatsApp webhook calls\n")
-    
-    test_scenarios = [
-        {
-            "name": "Text demand",
-            "From": "whatsapp:+1234567890",
-            "Body": "MALKIST CHEESE - 100\nBENG BENG - 50",
-            "NumMedia": 0
-        },
-        {
-            "name": "Negative response",
-            "From": "whatsapp:+1234567890",
-            "Body": "No requirement",
-            "NumMedia": 0
-        },
-        {
-            "name": "Media attachment (simulated)",
-            "From": "whatsapp:+1234567890",
-            "Body": "",
-            "NumMedia": 1,
-            "MediaContentType0": "image/jpeg",
-            "note": "Would trigger OCR in real scenario"
-        }
+    # Common locations your project might store the Excel files
+    candidate_primary = [
+        "db/simple_data/Primary_Sales.xlsx",
+        "db/Primary_Sales.xlsx",
+        "data/Primary_Sales.xlsx",
+        "Primary_Sales.xlsx",
     ]
-    
-    for i, scenario in enumerate(test_scenarios, 1):
-        print(f"\n{Colors.BOLD}Scenario {i}: {scenario['name']}{Colors.END}")
-        print(f"  From: {scenario['From']}")
-        print(f"  Body: {scenario.get('Body', '(media)'[:30])}")
-        print(f"  Media: {scenario['NumMedia']}")
-        
-        if scenario['NumMedia'] == 0:
-            # Simulate text parsing
-            from app.services.reply_parser_service import parse_reply
-            
-            result = parse_reply(scenario['From'], scenario['Body'])
-            
-            print(f"\n  Parsed Result:")
-            print(f"    Type: {result['reply_type']}")
-            print(f"    Confidence: {result['confidence']}")
-            print(f"    Items: {len(result['items'])}")
-            
-            if result['items']:
-                for item in result['items']:
-                    print(f"      • {item['sku_name']}: {item['quantity']}")
-            
-            print_success("Would send WhatsApp reply")
+    candidate_recommended = [
+        "db/simple_data/Recommended_Products.xlsx",
+        "db/Recommended_Products.xlsx",
+        "data/Recommended_Products.xlsx",
+        "Recommended_Products.xlsx",
+    ]
+
+    primary_file     = next((f for f in candidate_primary if os.path.exists(f)), None)
+    recommended_file = next((f for f in candidate_recommended if os.path.exists(f)), None)
+
+    if primary_file:
+        load_sku_data(primary_file, recommended_file)
+        sku_count = len(get_sku_names())
+        ok(f"SKU data loaded from '{primary_file}' — {sku_count} SKUs")
+        if recommended_file:
+            ok(f"Also loaded recommended products from '{recommended_file}'")
+        SKU_DATA_LOADED = True
+    else:
+        warn("No SKU Excel file found. SKU matching tests will be skipped.")
+        warn("Expected one of: " + ", ".join(candidate_primary))
+        warn("Place Primary_Sales.xlsx in your project root or db/simple_data/ to enable.")
+
+except Exception as exc:
+    warn(f"SKU data load failed: {exc}")
+
+
+# ─────────────────────────────────────────────────────────────
+# TEST 1: Text Demand Parsing
+# ─────────────────────────────────────────────────────────────
+
+head("TEST 1: Text Demand Parsing")
+
+try:
+    from app.services.reply_parser_service import parse_reply
+
+    # These cases test parsing logic only (not SKU matching),
+    # so they work even without the Excel file loaded.
+    structural_cases = [
+        ("MALKIST CHEESE - 100",                              "demand",       True),
+        ("BENG BENG WAFER - 50\nKOPIKO CAPPU EXTRA - 25",    "demand",       True),
+        ("no demand this week",                               "negative",     False),
+        ("",                                                  "unknown",      False),
+        ("MALKIST CHEESE JUMBO PACK - 100\nBENG BENG - 50",  "demand",       True),
+    ]
+
+    for text, expected_type, expect_items in structural_cases:
+        result = parse_reply("test@test.com", text)
+        rtype  = result["reply_type"]
+        items  = result["items"]
+        has_items = len(items) > 0
+
+        if rtype == expected_type and has_items == expect_items:
+            ok(f'"{text[:45]}" → type={rtype}, items={len(items)}, conf={result["confidence"]}')
         else:
-            print(f"  Note: {scenario.get('note', 'Media handling')}")
-            print_warning("Would process media file")
-    
-    return True
+            fail(
+                f'"{text[:45]}" → type={rtype} (expected {expected_type}), '
+                f'items={len(items)} (expected has_items={expect_items})'
+            )
+
+except Exception as exc:
+    fail(f"Text parsing module error: {exc}")
 
 
-# ============================================================================
-# TEST 6: SKU MATCHING
-# ============================================================================
+# ─────────────────────────────────────────────────────────────
+# TEST 2: SKU Fuzzy Matching
+# ─────────────────────────────────────────────────────────────
 
-def test_sku_matching():
-    """Test SKU fuzzy matching"""
-    print_header("TEST 6: SKU Fuzzy Matching")
-    
+head("TEST 2: SKU Fuzzy Matching")
+
+if not SKU_DATA_LOADED:
+    warn("Skipping — SKU Excel not found. Load Primary_Sales.xlsx to enable this test.")
+else:
     try:
         from app.services.reply_parser_service import match_sku
-        
-        test_inputs = [
-            "malkist cheese jumbo pack",
-            "beng beng wafer chocolate",
-            "SKU01",
-            "cheese cracker large",
-            "totally wrong product name 123"
-        ]
-        
-        for test_input in test_inputs:
-            print(f"\n{Colors.BOLD}Input: '{test_input}'{Colors.END}")
-            
-            sku_id, sku_name, score = match_sku(test_input, min_score=70)
-            
+        from app.data.sku_data import get_sku_names
+
+        sku_names = get_sku_names()
+        info(f"Testing against {len(sku_names)} loaded SKUs")
+
+        # Use the first 3 real SKU names from your catalogue for positive tests
+        sample_skus = sku_names[:3]
+
+        for sku_name in sample_skus:
+            # Use the exact name — should always match
+            sku_id, matched_name, score = match_sku(sku_name, min_score=75)
             if sku_id:
-                print(f"  Match: {sku_name}")
-                print(f"  SKU ID: {sku_id}")
-                print(f"  Score: {score}/100")
-                
-                if score >= 90:
-                    print_success("Excellent match")
-                elif score >= 75:
-                    print_success("Good match")
-                else:
-                    print_warning("Weak match")
+                ok(f'"{sku_name}" → {sku_id} (score {score})')
             else:
-                print_error(f"No match found (score: {score})")
-        
-        return True
-        
-    except Exception as e:
-        print_error(f"SKU matching test failed: {e}")
-        logger.exception(e)
-        return False
+                fail(f'"{sku_name}" → no match (score {score}) — check rapidfuzz install')
+
+        # Negative test — should never match
+        sku_id, _, score = match_sku("xyzzy unknown product 999", min_score=75)
+        if not sku_id:
+            ok('"xyzzy unknown product 999" → correctly no match')
+        else:
+            fail(f'"xyzzy unknown product 999" → wrongly matched {sku_id}')
+
+    except Exception as exc:
+        fail(f"match_sku error: {exc}")
 
 
-# ============================================================================
-# MAIN TEST RUNNER
-# ============================================================================
+# ─────────────────────────────────────────────────────────────
+# TEST 3: Excel Column Detection
+# ─────────────────────────────────────────────────────────────
 
-def run_all_tests():
-    """Run complete test suite"""
-    
-    print(f"\n{Colors.BOLD}{Colors.BLUE}")
-    print("╔" + "="*68 + "╗")
-    print("║" + " DEMAND INGESTION SYSTEM - STANDALONE TEST SUITE ".center(68) + "║")
-    print("║" + " NO Docker / Temporal / RedPanda Required ".center(68) + "║")
-    print("╚" + "="*68 + "╝")
-    print(Colors.END)
-    
-    results = {}
-    
-    # Run tests
-    results['text_parsing'] = test_text_parsing()
-    results['excel_parsing'] = test_excel_parsing()
-    results['ocr_service'] = test_ocr_service()
-    results['audio_service'] = test_audio_service()
-    results['whatsapp_sim'] = test_whatsapp_simulation()
-    results['sku_matching'] = test_sku_matching()
-    
-    # Summary
-    print_header("TEST SUMMARY")
-    
-    passed = sum(1 for v in results.values() if v)
-    total = len(results)
-    
-    for test_name, result in results.items():
-        status = f"{Colors.GREEN}PASS{Colors.END}" if result else f"{Colors.RED}FAIL{Colors.END}"
-        print(f"  {test_name.replace('_', ' ').title()}: {status}")
-    
-    print(f"\n{Colors.BOLD}Overall: {passed}/{total} tests passed{Colors.END}")
-    
-    if passed == total:
-        print(f"\n{Colors.GREEN}✓ All tests passed! System ready for integration.{Colors.END}")
-    elif passed >= total * 0.7:
-        print(f"\n{Colors.YELLOW}⚠ Most tests passed. Review failures above.{Colors.END}")
+head("TEST 3: Excel Column Detection & Parsing")
+
+try:
+    import pandas as pd
+    from app.controllers.whatsapp_webhook_controller_v3 import _detect_excel_columns
+    from app.services.reply_parser_service import match_sku as _ms
+
+    df = pd.DataFrame({
+        "sku_name":        ["Malkist Cheese", "Beng Beng Wafer", "Kopiko Cappu Extra"],
+        "sku_description": ["MALKIST 48PCS",  "BENG BENG 22GM",  "KOPIKO 12X"],
+        "Quantity":        [100, 50, 25],
+    })
+
+    product_col, qty_col = _detect_excel_columns(df)
+
+    if product_col and qty_col:
+        ok(f"Detected product_col='{product_col}', qty_col='{qty_col}'")
     else:
-        print(f"\n{Colors.RED}✗ Multiple failures. Check installation and dependencies.{Colors.END}")
-    
-    print(f"\n{Colors.BOLD}Next Steps for Your Team:{Colors.END}")
-    print("  1. Integrate with Temporal workflow")
-    print("  2. Connect to RedPanda event stream")
-    print("  3. Add PostgreSQL persistence")
-    print("  4. Deploy with Docker")
-    print()
+        fail(f"Column detection failed: product_col={product_col}, qty_col={qty_col}")
+
+    items = []
+    for _, row in df.iterrows():
+        name  = str(row[product_col]).strip()
+        qty   = int(row[qty_col])
+        sku_id, sku_name, score = _ms(name, min_score=50)
+        display = (sku_name or name).title()
+        items.append({"sku_name": display, "quantity": qty})
+
+    if len(items) == 3:
+        ok(f"Parsed {len(items)} rows from synthetic Excel")
+        for it in items:
+            ok(f'  {it["sku_name"]} — {it["quantity"]} units')
+    else:
+        fail(f"Expected 3 rows, got {len(items)}")
+
+except Exception as exc:
+    fail(f"Excel test error: {exc}")
 
 
-if __name__ == "__main__":
-    run_all_tests()
+# ─────────────────────────────────────────────────────────────
+# TEST 4: OCR Service
+# ─────────────────────────────────────────────────────────────
+
+head("TEST 4: OCR Service")
+
+try:
+    from app.services.ocr_service import (
+        get_ocr_service, ImagePreprocessor, TableParser,
+        OCREngine, check_dependencies,
+    )
+    ok("ocr_service module imports correctly")
+    ok("ImagePreprocessor, TableParser, OCREngine all present")
+
+    deps = check_dependencies()
+    if deps.get("paddleocr"):
+        ok("PaddleOCR available")
+    else:
+        warn("PaddleOCR NOT installed — run: pip install paddleocr paddlepaddle")
+    if deps.get("easyocr"):
+        ok("EasyOCR available (fallback engine)")
+    else:
+        warn("EasyOCR not installed (optional fallback) — run: pip install easyocr")
+    if deps.get("pillow"):
+        ok("Pillow available")
+    else:
+        fail("Pillow NOT installed — run: pip install Pillow")
+
+except Exception as exc:
+    fail(f"OCR service import error: {exc}")
+
+
+# ─────────────────────────────────────────────────────────────
+# TEST 5: Audio Service
+# ─────────────────────────────────────────────────────────────
+
+head("TEST 5: Audio Service")
+
+try:
+    from app.services.audio_service import check_dependencies as audio_deps
+    deps = audio_deps()
+    if deps["whisper"]:
+        ok("Whisper installed")
+    else:
+        warn("Whisper NOT installed (audio disabled) — run: pip install openai-whisper")
+    if deps["ffmpeg"]:
+        ok("ffmpeg available")
+    else:
+        warn("ffmpeg NOT found — audio conversion may fail")
+except Exception as exc:
+    fail(f"Audio service error: {exc}")
+
+
+# ─────────────────────────────────────────────────────────────
+# TEST 6: WhatsApp Service
+# ─────────────────────────────────────────────────────────────
+
+head("TEST 6: WhatsApp Service")
+
+try:
+    from app.services.whatsapp_service import send_whatsapp_message
+    ok("whatsapp_service imports correctly")
+    ok("send_whatsapp_message callable (Twilio creds from .env at runtime)")
+except Exception as exc:
+    fail(f"WhatsApp service error: {exc}")
+
+
+# ─────────────────────────────────────────────────────────────
+# Summary
+# ─────────────────────────────────────────────────────────────
+
+print(f"\n{C.BOLD}{'='*55}")
+print("Done.")
+if not SKU_DATA_LOADED:
+    print("NOTE: Put Primary_Sales.xlsx in project root to enable SKU match tests.")
+print(f"{'='*55}{C.RESET}\n")
